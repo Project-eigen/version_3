@@ -161,6 +161,10 @@ export default function FamilySettings() {
                     alt={member.name}
                     className="member-avatar"
                     referrerPolicy="no-referrer"
+                    width={48}
+                    height={48}
+                    loading="lazy"
+                    decoding="async"
                   />
                 ) : (
                   <div className="member-avatar-placeholder">

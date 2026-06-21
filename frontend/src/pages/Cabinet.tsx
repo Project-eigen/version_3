@@ -72,6 +72,10 @@ function MedicineCard({ med, slot, onLog, onImageClick, onDelete }: MedCardProps
           <img
             src={med.pack_image_url || med.scan_image_url || ''}
             alt={med.name}
+            width={56}
+            height={56}
+            loading="lazy"
+            decoding="async"
             style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 12 }}
           />
         ) : (

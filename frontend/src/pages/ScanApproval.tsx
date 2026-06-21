@@ -242,7 +242,7 @@ export default function ScanApproval() {
                 onClick={() => handleSelectMember(member.id)}
               >
                 {member.avatar_url ? (
-                  <img src={member.avatar_url} alt={member.name} className="pill-avatar" />
+                  <img src={member.avatar_url} alt={member.name} className="pill-avatar" width={28} height={28} loading="lazy" decoding="async" />
                 ) : (
                   <div className="pill-avatar-placeholder">
                     {member.name.charAt(0).toUpperCase()}
