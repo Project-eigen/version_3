@@ -64,10 +64,9 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Mobile-first app container — max width like a phone */
+/* Mobile-first app container — fills full screen on all devices */
 .app-shell {
-  max-width: 430px;
-  margin: 0 auto;
+  width: 100%;
   height: 100dvh;
   display: flex;
   flex-direction: column;
