@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import Header from '../components/Header'
 import api from '../api/client'
-import { Zap, ZapOff, Camera, X } from 'lucide-react'
+import { Zap, ZapOff, Camera, X, Upload } from 'lucide-react'
 
 export default function Scanner() {
   const webcamRef = useRef<Webcam>(null)
@@ -72,6 +72,33 @@ export default function Scanner() {
       setCapturing(false)
     }
   }, [capturing, navigate, activeMemberId])
+
+  const handleUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setCapturing(true)
+    try {
+      const imageSrc = URL.createObjectURL(file)
+      const formData = new FormData()
+      formData.append('image', file)
+
+      const scanRes = await api.post('/medicine/scan', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+
+      navigate('/scan/approve', {
+        state: {
+          scanData: scanRes.data,
+          capturedImage: imageSrc,
+          targetMemberId: activeMemberId,
+        },
+      })
+    } catch (err) {
+      console.error('Scan upload failed', err)
+      setCapturing(false)
+    }
+  }, [navigate, activeMemberId])
 
   return (
     <div className="scanner-fullpage">
@@ -151,16 +178,46 @@ export default function Scanner() {
             <span>Analyzing prescription…</span>
           </div>
         ) : (
-          <button
-            className="capture-btn"
-            onClick={handleCapture}
-            disabled={cameraError}
-            id="capture-btn"
-            aria-label="Capture medicine image"
-            type="button"
-          >
-            <Camera size={28} color="#0f172a" strokeWidth={2} />
-          </button>
+          <div style={{ position: 'relative', display: 'inline-block' }}>
+            <button
+              className="capture-btn"
+              onClick={handleCapture}
+              disabled={cameraError}
+              id="capture-btn"
+              aria-label="Capture medicine image"
+              type="button"
+            >
+              <Camera size={28} color="#0f172a" strokeWidth={2} />
+            </button>
+            
+            <label
+              style={{
+                position: 'absolute',
+                bottom: '-4px',
+                right: '-4px',
+                width: '28px',
+                height: '28px',
+                borderRadius: '50%',
+                backgroundColor: '#0d9488',
+                border: '2px solid #0f172a',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
+                zIndex: 10,
+              }}
+              title="Upload prescription photo"
+            >
+              <Upload size={14} color="#ffffff" strokeWidth={2.5} />
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleUpload}
+                style={{ display: 'none' }}
+              />
+            </label>
+          </div>
         )}
       </div>
     </div>
