@@ -13,17 +13,36 @@ import uuid
 
 medicine_bp = Blueprint("medicine", __name__)
 
-SCAN_PROMPT = """You are a medicine label analyzer. Analyze this image (which could contain one or more medicine packets, strips, bottles, or a prescription paper listing multiple medicines) and extract all identified medicines. 
-Return ONLY a valid JSON object containing an array under the key "medicines", where each item has these exact keys:
+SCAN_PROMPT = """You are an expert Indian prescription and hospital discharge summary OCR agent.
+
+Your task: analyze the image and extract every medicine listed — whether from a printed hospital table, a typed prescription, or a handwritten chit.
+
+For each medicine found, extract ALL of the following fields:
+- "name": full medicine name including brand and strength (e.g. "Tab Cetil 500mg", "Cap Pantocid DSR 40mg"). Include the form (Tab / Cap / Inj / Syrup / Drops / Nebulization) in the name if visible.
+- "dosage": quantity per dose as written (e.g. "1", "2", "1/2", "2 drops", "10 units"). If timing-specific doses differ (e.g. 1 in morning and 1 at night), summarize as "1-0-1".
+- "schedule": list of time slots when the medicine is taken. Use ONLY these values: "morning", "afternoon", "evening", "night". Infer from columns labelled Mrng/Morning, Noon/Afternoon, Evng/Evening, Night/Bedtime. If a cell has a number, a tick, or any mark, that slot is active.
+- "days": integer number of days the medicine is prescribed for (from the Days column or text like "for 5 days"). Return null if not found.
+- "instructions": administration instructions exactly as written (e.g. "After Food", "Before Breakfast", "S/C", "At Bed Time", "With Water"). Return null if not found.
+
+For handwritten prescriptions:
+- Read the medicine name even if abbreviated (e.g. "Pan D" = "Pan-D", "PCM" = "Paracetamol").
+- Infer schedule from notations like "1-0-1" (morning and night), "1-1-1" (morning, afternoon, night), "OD" (once daily = morning), "BD" (twice = morning + night), "TDS" (three times = morning, afternoon, night), "QDS" (four times = all slots).
+- Look for handwritten numbers at the bottom or margins as additional medicines.
+
+Return ONLY a valid JSON object with this exact structure, no markdown, no explanation:
 {
-  "name": "medicine name",
-  "dosage": "dosage strength (e.g. 500mg, 10mg/5ml)",
-  "schedule": ["morning", "evening"]  
+  "medicines": [
+    {
+      "name": "Tab Cetil 500mg",
+      "dosage": "1",
+      "schedule": ["morning", "night"],
+      "days": 5,
+      "instructions": "After Food"
+    }
+  ]
 }
 
-For schedule, use only these values: "morning", "afternoon", "evening", "night"
-If you cannot determine a value, use null or an empty list.
-Return ONLY the JSON, no explanation or markdown formatting."""
+If a field cannot be determined, use null. Return ONLY the JSON."""
 
 
 @medicine_bp.route("/api/medicine/scan", methods=["POST"])
@@ -105,6 +124,8 @@ def add_medicine():
     schedule_raw = request.form.get("schedule", "[]")
     scan_image_url = request.form.get("scan_image_url", "")
     target_user_id = request.form.get("target_user_id", user.id, type=int)
+    days_raw = request.form.get("days")
+    instructions = request.form.get("instructions", "").strip() or None
 
     if not name:
         return jsonify({"error": "Medicine name is required"}), 400
@@ -119,6 +140,13 @@ def add_medicine():
         schedule = json.loads(schedule_raw)
     except Exception:
         schedule = []
+
+    days = None
+    if days_raw is not None and days_raw.strip():
+        try:
+            days = int(days_raw)
+        except (ValueError, TypeError):
+            days = None
 
     pack_image_url = None
     if "pack_image" in request.files:
@@ -137,6 +165,8 @@ def add_medicine():
         name=name,
         dosage=dosage,
         schedule_json=json.dumps(schedule),
+        days=days,
+        instructions=instructions,
         scan_image_url=scan_image_url,
         pack_image_url=pack_image_url,
     )

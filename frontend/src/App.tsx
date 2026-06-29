@@ -12,6 +12,7 @@ const Cabinet       = lazy(() => import('./pages/Cabinet'))
 const Scanner       = lazy(() => import('./pages/Scanner'))
 const ScanApproval  = lazy(() => import('./pages/ScanApproval'))
 const FamilyInbox   = lazy(() => import('./pages/FamilyInbox'))
+const NotificationSettings = lazy(() => import('./pages/NotificationSettings'))
 
 // Minimal full-screen spinner shown while a lazy chunk is being downloaded.
 // Matches the dark background so there's no flash of white (prevents CLS).
@@ -57,6 +58,7 @@ function AppRoutes() {
           <Route path="/scan"        element={<ProtectedRoute><Scanner /></ProtectedRoute>} />
           <Route path="/scan/approve" element={<ProtectedRoute><ScanApproval /></ProtectedRoute>} />
           <Route path="/inbox"       element={<ProtectedRoute><FamilyInbox /></ProtectedRoute>} />
+          <Route path="/notifications" element={<ProtectedRoute><NotificationSettings /></ProtectedRoute>} />
 
           {/* Fallback */}
           <Route path="*" element={<Navigate to="/" replace />} />

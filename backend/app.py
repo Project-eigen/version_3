@@ -6,6 +6,7 @@ from extensions import db
 from routes.auth import auth_bp
 from routes.family import family_bp
 from routes.medicine import medicine_bp
+from routes.notifications import notifications_bp
 
 
 def create_app():
@@ -26,11 +27,19 @@ def create_app():
     app.register_blueprint(auth_bp)
     app.register_blueprint(family_bp)
     app.register_blueprint(medicine_bp)
+    app.register_blueprint(notifications_bp)
 
     # Create DB tables & uploads folder
     with app.app_context():
         db.create_all()
         os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
+
+    # Start notification scheduler.
+    # WERKZEUG_RUN_MAIN guard: Flask debug reloader forks a child process;
+    # only the child should start the scheduler to avoid running it twice.
+    if not app.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+        from scheduler import init_scheduler
+        init_scheduler(app)
 
     return app
 

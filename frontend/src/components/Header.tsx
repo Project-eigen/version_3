@@ -1,7 +1,7 @@
 import React from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { Pill, Inbox, LogOut } from 'lucide-react'
+import { Pill, Inbox, Bell, LogOut } from 'lucide-react'
 
 interface HeaderProps {
   inboxCount?: number
@@ -44,6 +44,18 @@ export default function Header({ inboxCount = 0 }: HeaderProps) {
         >
           <Inbox size={18} />
           {inboxCount > 0 && <span className="badge" />}
+        </button>
+
+        {/* Notifications */}
+        <button
+          className="icon-btn"
+          onClick={() => navigate('/notifications')}
+          aria-label="Notification settings"
+          id="header-notifications-btn"
+          title="Notification settings"
+          type="button"
+        >
+          <Bell size={18} />
         </button>
 
         {/* Logout */}

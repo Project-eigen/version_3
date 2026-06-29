@@ -87,6 +87,12 @@ function MedicineCard({ med, slot, onLog, onImageClick, onDelete }: MedCardProps
       <div className="med-info" style={{ flex: 1 }}>
         <div className="med-name">{med.name}</div>
         {med.dosage && <div className="med-dosage">{med.dosage}</div>}
+        {med.instructions && (
+          <div className="med-instructions">{med.instructions}</div>
+        )}
+        {med.days != null && (
+          <div className="med-days-badge">{med.days}d</div>
+        )}
       </div>
 
       {/* Action panel: Delete + Hold button */}

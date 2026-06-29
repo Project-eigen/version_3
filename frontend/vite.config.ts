@@ -8,8 +8,11 @@ export default defineConfig({
     react(),
     tailwindcss(),
     VitePWA({
-      // selfDestroying was true — this was destroying the SW immediately after install,
-      // which disabled ALL caching. Fixed to false.
+      // injectManifest mode: our custom src/sw.ts is bundled as the service worker.
+      // This lets us add push event handlers while keeping all workbox caching rules.
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
       selfDestroying: false,
       registerType: 'autoUpdate',
       injectRegister: 'auto',
@@ -30,73 +33,12 @@ export default defineConfig({
           { src: 'pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
         ],
       },
-      workbox: {
-        // Cache all static assets (JS, CSS, HTML, images, fonts)
+      injectManifest: {
+        // These are the assets that Workbox will precache
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
-
-        // Aggressively precache the app shell
-        navigateFallback: '/index.html',
-        navigateFallbackDenylist: [/^\/api\//],
-
-        runtimeCaching: [
-          // ─── API calls (relative /api/*) ────────────────────────────────
-          // Uses NetworkFirst: tries network, falls back to cache (24h)
-          // Matches any origin — works on localhost, tunnel, and production
-          {
-            urlPattern: ({ url }) => url.pathname.startsWith('/api/'),
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'api-cache',
-              networkTimeoutSeconds: 8,
-              expiration: {
-                maxEntries: 300,
-                maxAgeSeconds: 86400, // 24 hours
-              },
-              cacheableResponse: {
-                statuses: [0, 200],
-              },
-            },
-          },
-
-          // ─── Medicine / prescription images (/uploads/*) ─────────────────
-          // Uses CacheFirst: serve from cache immediately, very fast on repeat visits
-          {
-            urlPattern: ({ url }) => url.pathname.startsWith('/uploads/'),
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'image-cache',
-              expiration: {
-                maxEntries: 200,
-                maxAgeSeconds: 2592000, // 30 days (up from 7)
-              },
-              cacheableResponse: {
-                statuses: [0, 200],
-              },
-            },
-          },
-
-          // ─── Google Fonts (if ever added) ─────────────────────────────────
-          {
-            urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
-            handler: 'StaleWhileRevalidate',
-            options: {
-              cacheName: 'google-fonts-stylesheets',
-            },
-          },
-          {
-            urlPattern: /^https:\/\/fonts\.gstatic\.com\/.*/i,
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'google-fonts-webfonts',
-              expiration: {
-                maxEntries: 30,
-                maxAgeSeconds: 31536000, // 1 year
-              },
-            },
-          },
-        ],
       },
     }),
+
   ],
   server: {
     port: 5173,

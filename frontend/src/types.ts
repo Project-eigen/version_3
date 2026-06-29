@@ -30,6 +30,8 @@ export interface MedicineEntry {
   name: string
   dosage: string | null
   schedule: TimeSlot[]
+  days: number | null
+  instructions: string | null
   scan_image_url: string | null
   pack_image_url: string | null
   created_at: string

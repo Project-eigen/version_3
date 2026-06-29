@@ -36,6 +36,18 @@ class User(db.Model):
     family_id = db.Column(db.Integer, db.ForeignKey("families.id"), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+    # ── Notification fields ────────────────────────────────────────────────────
+    # Browser's getTimezoneOffset() value (e.g. -330 for IST). UTC = Local + offset.
+    timezone_offset = db.Column(db.Integer, default=0)
+    # Telegram chat ID once the bot is linked
+    telegram_chat_id = db.Column(db.String(64), nullable=True)
+    # Full browser PushSubscription JSON (endpoint + keys)
+    push_subscription_json = db.Column(db.Text, nullable=True)
+    # JSON array of enabled slots e.g. ["morning","night"]
+    notif_slots_json = db.Column(db.Text, default='["morning","afternoon","evening","night"]')
+    # JSON map of custom slot times e.g. {"morning":"08:00","night":"22:00"}
+    notif_times_json = db.Column(db.Text, default='{"morning":"08:00","afternoon":"13:00","evening":"18:00","night":"22:00"}')
+
     # Relationships
     medicines = db.relationship("MedicineEntry", backref="user", lazy=True)
     logs = db.relationship("MedicineLog", backref="user", lazy=True)
@@ -47,7 +59,10 @@ class User(db.Model):
             "email": self.email,
             "avatar_url": self.avatar_url,
             "family_id": self.family_id,
+            "telegram_linked": self.telegram_chat_id is not None,
+            "push_enabled": self.push_subscription_json is not None,
         }
+
 
 
 class FamilyJoinRequest(db.Model):
@@ -84,6 +99,8 @@ class MedicineEntry(db.Model):
     name = db.Column(db.String(256), nullable=False)
     dosage = db.Column(db.String(128))
     schedule_json = db.Column(db.Text)  # JSON: ["morning", "evening"] etc.
+    days = db.Column(db.Integer, nullable=True)  # Number of days to take this medicine
+    instructions = db.Column(db.String(256), nullable=True)  # e.g. "After Food", "Before Breakfast"
     scan_image_url = db.Column(db.String(512))  # image from scanner
     pack_image_url = db.Column(db.String(512))  # image of the physical pack
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -108,6 +125,8 @@ class MedicineEntry(db.Model):
             "name": self.name,
             "dosage": self.dosage,
             "schedule": self.schedule,
+            "days": self.days,
+            "instructions": self.instructions,
             "scan_image_url": self.scan_image_url,
             "pack_image_url": self.pack_image_url,
             "created_at": self.created_at.isoformat(),
@@ -131,3 +150,37 @@ class MedicineLog(db.Model):
             "time_slot": self.time_slot,
             "logged_at": self.logged_at.isoformat(),
         }
+
+
+class TelegramLinkCode(db.Model):
+    """Temporary 6-digit code used to pair a user with the Telegram bot.
+    The user sends this code to the bot; the bot webhook then saves their chat_id.
+    """
+    __tablename__ = "telegram_link_codes"
+
+    id = db.Column(db.Integer, primary_key=True)
+    code = db.Column(db.String(6), unique=True, nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    used = db.Column(db.Boolean, default=False)
+
+    user = db.relationship("User", foreign_keys=[user_id])
+
+
+class NotificationLog(db.Model):
+    """Idempotency guard: one record per (user, date, slot) ensures we never
+    send the same notification twice even if the scheduler fires multiple times.
+    """
+    __tablename__ = "notification_logs"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    date = db.Column(db.Date, nullable=False)
+    time_slot = db.Column(db.String(16), nullable=False)
+    channel = db.Column(db.String(16), default="both")  # telegram | push | both
+    sent_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint("user_id", "date", "time_slot", name="uq_notif_user_date_slot"),
+    )
+

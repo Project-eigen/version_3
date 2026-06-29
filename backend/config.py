@@ -21,3 +21,15 @@ class Config:
 
     UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), "uploads")
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16 MB max upload
+
+    # ── Telegram Bot ────────────────────────────────────────────────────────────
+    TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    # Full public HTTPS base URL of this backend (used to register the webhook)
+    # e.g. https://abc123.devtunnels.ms  (VS Code tunnel URL, no trailing slash)
+    TELEGRAM_WEBHOOK_URL = os.environ.get("TELEGRAM_WEBHOOK_URL", "")
+
+    # ── Web Push VAPID ──────────────────────────────────────────────────────────
+    # Generate once with: python generate_vapid.py
+    VAPID_PRIVATE_KEY = os.environ.get("VAPID_PRIVATE_KEY", "")
+    VAPID_PUBLIC_KEY = os.environ.get("VAPID_PUBLIC_KEY", "")
+    VAPID_CLAIMS_EMAIL = os.environ.get("VAPID_CLAIMS_EMAIL", "admin@dawaisathi.com")

@@ -18,6 +18,8 @@ interface EditableMedicine {
   name: string
   dosage: string
   schedule: TimeSlot[]
+  days: string
+  instructions: string
   packImage: string | null
   packFile: File | null
 }
@@ -33,7 +35,15 @@ export default function ScanApproval() {
         name?: string | null
         dosage?: string | null
         schedule?: TimeSlot[]
-        medicines?: Array<{ name: string | null; dosage: string | null; schedule: TimeSlot[] }>
+        days?: number | null
+        instructions?: string | null
+        medicines?: Array<{
+          name: string | null
+          dosage: string | null
+          schedule: TimeSlot[]
+          days: number | null
+          instructions: string | null
+        }>
       }
     }
     capturedImage: string
@@ -50,6 +60,8 @@ export default function ScanApproval() {
         name: m.name || '',
         dosage: m.dosage || '',
         schedule: m.schedule || [],
+        days: m.days != null ? String(m.days) : '',
+        instructions: m.instructions || '',
         packImage: null,
         packFile: null,
       }))
@@ -60,6 +72,8 @@ export default function ScanApproval() {
           name: singleExtracted.name || '',
           dosage: singleExtracted.dosage || '',
           schedule: singleExtracted.schedule || [],
+          days: (singleExtracted as any).days != null ? String((singleExtracted as any).days) : '',
+          instructions: (singleExtracted as any).instructions || '',
           packImage: null,
           packFile: null,
         },
@@ -73,6 +87,8 @@ export default function ScanApproval() {
         name: '',
         dosage: '',
         schedule: [],
+        days: '',
+        instructions: '',
         packImage: null,
         packFile: null,
       },
@@ -130,6 +146,18 @@ export default function ScanApproval() {
     )
   }
 
+  const updateDays = (idx: number, val: string) => {
+    setMedicines((prev) =>
+      prev.map((med, i) => (i === idx ? { ...med, days: val } : med))
+    )
+  }
+
+  const updateInstructions = (idx: number, val: string) => {
+    setMedicines((prev) =>
+      prev.map((med, i) => (i === idx ? { ...med, instructions: val } : med))
+    )
+  }
+
   const deleteMedicine = (idx: number) => {
     if (medicines.length === 1) {
       showToast('Must have at least one medicine', 'error')
@@ -146,6 +174,8 @@ export default function ScanApproval() {
         name: '',
         dosage: '',
         schedule: [],
+        days: '',
+        instructions: '',
         packImage: null,
         packFile: null,
       },
@@ -193,6 +223,8 @@ export default function ScanApproval() {
         if (med.dosage.trim()) formData.append('dosage', med.dosage.trim())
         formData.append('schedule', JSON.stringify(med.schedule))
         formData.append('target_user_id', String(targetMemberId))
+        if (med.days.trim()) formData.append('days', med.days.trim())
+        if (med.instructions.trim()) formData.append('instructions', med.instructions.trim())
 
         // Set overall scanned doc image as reference if they didn't capture a custom one
         if (state?.scanData?.scan_image_url) {
@@ -343,6 +375,40 @@ export default function ScanApproval() {
                           {label}
                         </button>
                       ))}
+                    </div>
+                  </div>
+
+                  {/* Days + Instructions row */}
+                  <div className="approval-fields-grid" style={{ marginTop: 8 }}>
+                    <div className="field-row" style={{ width: '80px' }}>
+                      <div className="field-label">Days</div>
+                      <div className="field-wrapper">
+                        <input
+                          className="field-input"
+                          type="number"
+                          min="1"
+                          max="365"
+                          value={med.days}
+                          onChange={(e) => updateDays(idx, e.target.value)}
+                          placeholder="e.g. 5"
+                          aria-label={`Medicine #${idx + 1} Days`}
+                        />
+                        <Pencil size={12} className="field-edit-icon" />
+                      </div>
+                    </div>
+
+                    <div className="field-row" style={{ flex: 1 }}>
+                      <div className="field-label">Instructions</div>
+                      <div className="field-wrapper">
+                        <input
+                          className="field-input"
+                          value={med.instructions}
+                          onChange={(e) => updateInstructions(idx, e.target.value)}
+                          placeholder="e.g. After Food"
+                          aria-label={`Medicine #${idx + 1} Instructions`}
+                        />
+                        <Pencil size={12} className="field-edit-icon" />
+                      </div>
                     </div>
                   </div>
 

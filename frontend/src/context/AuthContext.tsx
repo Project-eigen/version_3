@@ -35,6 +35,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const res = await api.get('/auth/me')
       setUser(res.data)
+      // Silently keep the backend's timezone in sync with the browser.
+      // This ensures the scheduler fires notifications at the right local time.
+      api.post('/notifications/timezone', { tz_offset: new Date().getTimezoneOffset() }).catch(() => {})
     } catch {
       localStorage.removeItem('token')
       setUser(null)
