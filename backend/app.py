@@ -34,6 +34,11 @@ def create_app():
         db.create_all()
         os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 
+    # Health check route for UptimeRobot
+    @app.route("/")
+    def health_check():
+        return {"status": "healthy", "service": "DawaiSathi API"}, 200
+
     # Start notification scheduler.
     # WERKZEUG_RUN_MAIN guard: Flask debug reloader forks a child process;
     # only the child should start the scheduler to avoid running it twice.

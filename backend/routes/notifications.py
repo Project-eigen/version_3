@@ -347,3 +347,16 @@ def set_telegram_webhook():
         return jsonify({"error": resp.json()}), 500
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
+
+
+# ── Utility: external trigger for cron jobs ──────────────────────────────────
+
+@notifications_bp.route("/api/notifications/trigger-check", methods=["GET", "POST"])
+def trigger_check():
+    """Webhook for external cron services (like cron-job.org) to trigger the notification run."""
+    from scheduler import send_due_notifications
+    try:
+        send_due_notifications()
+        return jsonify({"ok": True, "message": "Notification check executed"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
