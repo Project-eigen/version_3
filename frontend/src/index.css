@@ -270,7 +270,8 @@ body {
 }
 
 /* ===================== PAGE CONTAINER ===================== */
-.page-content {
+.page-content,
+.page-scroll {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
