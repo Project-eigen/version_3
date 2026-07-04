@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 
 from flask import Blueprint, request, jsonify, current_app
 from extensions import db
-from models import User, TelegramLinkCode
+from models import User, TelegramLinkCode, PushSubscription
 from routes.auth import get_current_user
 
 log = logging.getLogger(__name__)
@@ -61,7 +61,7 @@ def get_settings():
 
     return jsonify({
         "telegram_linked": user.telegram_chat_id is not None,
-        "push_enabled": user.push_subscription_json is not None,
+        "push_enabled": PushSubscription.query.filter_by(user_id=user.id).count() > 0,
         "slots": slots,
         "times": times,
     })
@@ -274,7 +274,19 @@ def push_subscribe():
     subscription = data.get("subscription")
     if not subscription:
         return jsonify({"error": "No subscription object provided"}), 400
-    user.push_subscription_json = json.dumps(subscription)
+    endpoint = subscription.get("endpoint", "")
+    if not endpoint:
+        return jsonify({"error": "No endpoint in subscription"}), 400
+
+    existing = PushSubscription.query.filter_by(endpoint=endpoint).first()
+    if existing:
+        existing.subscription_json = json.dumps(subscription)
+    else:
+        db.session.add(PushSubscription(
+            user_id=user.id,
+            endpoint=endpoint,
+            subscription_json=json.dumps(subscription),
+        ))
     db.session.commit()
     return jsonify({"ok": True})
 
@@ -284,7 +296,13 @@ def push_unsubscribe():
     user = get_current_user()
     if not user:
         return jsonify({"error": "Unauthorized"}), 401
-    user.push_subscription_json = None
+    data = request.get_json(silent=True) or {}
+    endpoint = data.get("endpoint")
+
+    query = PushSubscription.query.filter_by(user_id=user.id)
+    if endpoint:
+        query = query.filter_by(endpoint=endpoint)
+    query.delete()
     db.session.commit()
     return jsonify({"ok": True})
 
@@ -295,19 +313,21 @@ def push_test():
     user = get_current_user()
     if not user:
         return jsonify({"error": "Unauthorized"}), 401
-    if not user.push_subscription_json:
+
+    sub = PushSubscription.query.filter_by(user_id=user.id).first()
+    if not sub:
         return jsonify({"error": "No push subscription saved"}), 400
 
     from notification_helpers import send_push_notification
     result = send_push_notification(
-        user.push_subscription_json,
+        sub.subscription_json,
         title="💊 DawaiSathi — Test Notification",
         body="Push notifications are working correctly! ✓",
         url="/cabinet",
     )
 
     if result == "expired":
-        user.push_subscription_json = None
+        db.session.delete(sub)
         db.session.commit()
         return jsonify({"error": "Subscription expired — please re-enable"}), 400
     if result:

@@ -40,15 +40,16 @@ _scheduler = None  # Singleton
 def send_due_notifications() -> None:
     """Called every minute by APScheduler (inside an app context)."""
     from extensions import db
-    from models import User, NotificationLog
+    from models import User, NotificationLog, PushSubscription
 
     now_utc = datetime.utcnow()
 
     # Only query users who have at least one channel configured
+    has_push = db.session.query(PushSubscription.user_id).distinct().subquery()
     users = User.query.filter(
         db.or_(
             User.telegram_chat_id.isnot(None),
-            User.push_subscription_json.isnot(None),
+            User.id.in_(db.session.query(has_push.c.user_id)),
         )
     ).all()
 
@@ -130,22 +131,23 @@ def _check_user(user, now_utc: datetime, db) -> None:
 
         # ── Web Push ──────────────────────────────────────────────────────────
         push_ok = False
-        if user.push_subscription_json:
+        subscriptions = user.push_subscriptions.all()
+        if subscriptions:
             push_body = " · ".join(m.name for m in medicines[:3])
             if len(medicines) > 3:
                 push_body += f" +{len(medicines) - 3} more"
 
-            result = send_push_notification(
-                user.push_subscription_json,
-                title=f"💊 {slot_label} Medicines ({time_display})",
-                body=push_body,
-                url="/cabinet",
-            )
-            if result == "expired":
-                user.push_subscription_json = None
-                db.session.add(user)
-            elif result is True:
-                push_ok = True
+            for sub in subscriptions:
+                result = send_push_notification(
+                    sub.subscription_json,
+                    title=f"💊 {slot_label} Medicines ({time_display})",
+                    body=push_body,
+                    url="/cabinet",
+                )
+                if result == "expired":
+                    db.session.delete(sub)
+                elif result is True:
+                    push_ok = True
 
         # ── Log to prevent resending (only if at least one channel fired) ─────
         if not tg_ok and not push_ok:

@@ -131,7 +131,8 @@ export default function NotificationSettings() {
       })
 
       await api.post('/notifications/push/subscribe', { subscription: sub.toJSON() })
-      setSettings((s) => s ? { ...s, push_enabled: true } : s)
+      const r = await api.get('/notifications/settings')
+      setSettings(r.data)
       showToast('Phone notifications enabled ✓')
     } catch (err: unknown) {
       showToast(
@@ -148,10 +149,13 @@ export default function NotificationSettings() {
     try {
       const sw = await navigator.serviceWorker.ready
       const sub = await sw.pushManager.getSubscription()
-      if (sub) await sub.unsubscribe()
-      await api.post('/notifications/push/unsubscribe')
-      setSettings((s) => s ? { ...s, push_enabled: false } : s)
-      showToast('Phone notifications disabled')
+      if (sub) {
+        await api.post('/notifications/push/unsubscribe', { endpoint: sub.endpoint })
+        await sub.unsubscribe()
+      }
+      const r = await api.get('/notifications/settings')
+      setSettings(r.data)
+      showToast('Phone notifications disabled on this device')
     } catch {
       showToast('Could not disable push notifications', 'error')
     } finally {

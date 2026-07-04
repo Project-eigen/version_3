@@ -51,6 +51,7 @@ class User(db.Model):
     # Relationships
     medicines = db.relationship("MedicineEntry", backref="user", lazy=True)
     logs = db.relationship("MedicineLog", backref="user", lazy=True)
+    push_subscriptions = db.relationship("PushSubscription", backref="user", lazy="dynamic")
 
     def to_dict(self):
         return {
@@ -60,9 +61,19 @@ class User(db.Model):
             "avatar_url": self.avatar_url,
             "family_id": self.family_id,
             "telegram_linked": self.telegram_chat_id is not None,
-            "push_enabled": self.push_subscription_json is not None,
+            "push_enabled": self.push_subscriptions.count() > 0,
         }
 
+
+
+class PushSubscription(db.Model):
+    __tablename__ = "push_subscriptions"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    endpoint = db.Column(db.Text, nullable=False)
+    subscription_json = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
 class FamilyJoinRequest(db.Model):
