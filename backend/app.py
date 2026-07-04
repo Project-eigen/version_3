@@ -40,9 +40,13 @@ def create_app():
         return {"status": "healthy", "service": "DawaiSathi API"}, 200
 
     # Start notification scheduler.
-    # WERKZEUG_RUN_MAIN guard: Flask debug reloader forks a child process;
-    # only the child should start the scheduler to avoid running it twice.
-    if not app.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+    # WERKZEUG_RUN_MAIN guard: under Flask's debug reloader the parent
+    # process is only a file-watcher; the child (WERKZEUG_RUN_MAIN="true")
+    # runs the real app. Under gunicorn there is no reloader so we always
+    # start the scheduler when app.debug is False OR when Werkzeug confirms
+    # we are in the child process. Render also sets RENDER=true automatically.
+    werkzeug_main = os.environ.get("WERKZEUG_RUN_MAIN")
+    if not app.debug or werkzeug_main == "true" or os.environ.get("RENDER") == "true":
         from scheduler import init_scheduler
         init_scheduler(app)
 
