@@ -26,6 +26,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('activeMemberId', String(id))
   }
 
+  const syncTimezone = () => {
+    // Fire-and-forget with retry so a transient backend blip doesn't leave
+    // the timezone at UTC and shift all reminder times for the user.
+    const attempt = () => {
+      api.post('/notifications/timezone', { tz_offset: new Date().getTimezoneOffset() })
+        .catch(() => new Promise((r) => setTimeout(r, 5000)).then(attempt))
+    }
+    attempt()
+  }
+
   const fetchUser = async () => {
     const token = localStorage.getItem('token')
     if (!token) {
@@ -35,12 +45,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const res = await api.get('/auth/me')
       setUser(res.data)
-      // Silently keep the backend's timezone in sync with the browser.
-      // This ensures the scheduler fires notifications at the right local time.
-      api.post('/notifications/timezone', { tz_offset: new Date().getTimezoneOffset() }).catch(() => {})
-    } catch {
-      localStorage.removeItem('token')
-      setUser(null)
+      // Sync the browser timezone so the scheduler fires at the right
+      // local time regardless of the user's geographic location.
+      syncTimezone()
+    } catch (err: any) {
+      // Only wipe the token on actual 401 (expired/invalid).
+      // Network blips, 5xx, or backend restarts should NOT log the user out.
+      if (err?.response?.status === 401) {
+        localStorage.removeItem('token')
+        setUser(null)
+      }
+      // Otherwise keep the token — a future page load may succeed.
     } finally {
       setLoading(false)
     }

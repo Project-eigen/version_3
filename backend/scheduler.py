@@ -119,15 +119,17 @@ def _check_user(user, now_utc: datetime, db) -> None:
         med_lines = _format_med_lines(medicines)
 
         # ── Telegram ──────────────────────────────────────────────────────────
+        tg_ok = False
         if user.telegram_chat_id:
             tg_text = (
                 f"💊 <b>DawaiSathi — {slot_label} Reminder ({time_display})</b>\n\n"
                 + "\n".join(med_lines)
                 + "\n\n<i>Open the app to log your dose ✓</i>"
             )
-            send_telegram_message(user.telegram_chat_id, tg_text)
+            tg_ok = send_telegram_message(user.telegram_chat_id, tg_text)
 
         # ── Web Push ──────────────────────────────────────────────────────────
+        push_ok = False
         if user.push_subscription_json:
             push_body = " · ".join(m.name for m in medicines[:3])
             if len(medicines) > 3:
@@ -140,13 +142,25 @@ def _check_user(user, now_utc: datetime, db) -> None:
                 url="/cabinet",
             )
             if result == "expired":
-                # Subscription is dead — clear it so we stop trying
                 user.push_subscription_json = None
                 db.session.add(user)
+            elif result is True:
+                push_ok = True
 
-        # ── Log to prevent resending ──────────────────────────────────────────
+        # ── Log to prevent resending (only if at least one channel fired) ─────
+        if not tg_ok and not push_ok:
+            continue
+
+        channel = "both"
+        if tg_ok and not push_ok:
+            channel = "telegram"
+        elif push_ok and not tg_ok:
+            channel = "push"
+
         try:
-            log_entry = NotificationLog(user_id=user.id, date=today, time_slot=slot)
+            log_entry = NotificationLog(
+                user_id=user.id, date=today, time_slot=slot, channel=channel
+            )
             db.session.add(log_entry)
             db.session.commit()
         except Exception:
@@ -156,10 +170,26 @@ def _check_user(user, now_utc: datetime, db) -> None:
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _get_due_medicines(user_id: int, slot: str, today: date) -> list:
-    """Return all active medicines for a user+slot, filtering by days field."""
-    from models import MedicineEntry
+    """Return all active medicines for a user+family+slot, filtering by days field."""
+    from models import MedicineEntry, User
 
-    medicines = MedicineEntry.query.filter_by(user_id=user_id).all()
+    user = User.query.get(user_id)
+    if not user:
+        return []
+
+    # Include the user's family members so a parent gets reminded about
+    # medicines added for a child (or any other family member).
+    if user.family_id:
+        target_ids = [
+            m.id for m in User.query.filter_by(family_id=user.family_id).all()
+        ]
+    else:
+        target_ids = [user_id]
+
+    medicines = MedicineEntry.query.filter(
+        MedicineEntry.user_id.in_(target_ids)
+    ).all()
+
     result = []
     for med in medicines:
         if slot not in (med.schedule or []):
@@ -167,7 +197,7 @@ def _get_due_medicines(user_id: int, slot: str, today: date) -> list:
         # Respect the days field: don't notify after the course ends
         if med.days is not None:
             end_date = med.created_at.date() + timedelta(days=med.days)
-            if today > end_date:
+            if today >= end_date:
                 continue
         result.append(med)
     return result
