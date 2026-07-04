@@ -1,4 +1,5 @@
 import os
+import json
 from flask import Flask
 from flask_cors import CORS
 from config import Config
@@ -33,6 +34,26 @@ def create_app():
     with app.app_context():
         db.create_all()
         os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
+
+        # Migrate old push subscriptions to the new table
+        from models import User, PushSubscription
+        legacy_users = User.query.filter(
+            User.push_subscription_json.isnot(None)
+        ).all()
+        for user in legacy_users:
+            exists = PushSubscription.query.filter_by(user_id=user.id).first()
+            if not exists and user.push_subscription_json:
+                try:
+                    sub_data = json.loads(user.push_subscription_json)
+                    db.session.add(PushSubscription(
+                        user_id=user.id,
+                        endpoint=sub_data.get("endpoint", ""),
+                        subscription_json=user.push_subscription_json,
+                    ))
+                except Exception:
+                    pass  # skip malformed subs
+        if legacy_users:
+            db.session.commit()
 
     # Health check route for UptimeRobot
     @app.route("/")
