@@ -326,13 +326,15 @@ def push_test():
         url="/cabinet",
     )
 
+    if result is True:
+        return jsonify({"ok": True})
     if result == "expired":
         db.session.delete(sub)
         db.session.commit()
         return jsonify({"error": "Subscription expired — please re-enable"}), 400
-    if result:
-        return jsonify({"ok": True})
-    return jsonify({"error": "Failed to send — check VAPID keys in .env"}), 500
+    if isinstance(result, str):
+        return jsonify({"error": f"Push send failed: {result}"}), 500
+    return jsonify({"error": "Push send failed — check VAPID keys in .env"}), 500
 
 
 # ── Utility: re-register Telegram webhook ────────────────────────────────────

@@ -75,8 +75,11 @@ def send_push_notification(
     except Exception as exc:
         # Check for WebPushException specifically
         if hasattr(exc, "response") and exc.response is not None:
-            if exc.response.status_code in (404, 410):
-                log.info("Push subscription expired (status %s) — will clear", exc.response.status_code)
+            status = exc.response.status_code
+            if status in (404, 410):
+                log.info("Push subscription expired (status %s) — will clear", status)
                 return "expired"
+            log.error("Push send error (HTTP %s): %s", status, exc)
+            return f"push_service_error_{status}"
         log.error("Push send error: %s", exc)
-        return False
+        return f"push_error_{type(exc).__name__}"
