@@ -56,12 +56,23 @@ def get_settings():
     if not user:
         return jsonify({"error": "Unauthorized"}), 401
 
+    endpoint = request.args.get("endpoint", "")
+
     slots = json.loads(user.notif_slots_json) if user.notif_slots_json else list(DEFAULT_TIMES.keys())
     times = json.loads(user.notif_times_json) if user.notif_times_json else DEFAULT_TIMES
 
+    subs = PushSubscription.query.filter_by(user_id=user.id).all()
+    current_device_enabled = any(s.endpoint == endpoint for s in subs) if endpoint else False
+
     return jsonify({
         "telegram_linked": user.telegram_chat_id is not None,
-        "push_enabled": PushSubscription.query.filter_by(user_id=user.id).count() > 0,
+        "push_enabled": len(subs) > 0,
+        "push_enabled_current_device": current_device_enabled,
+        "push_device_count": len(subs),
+        "push_devices": [
+            {"endpoint": s.endpoint[-40:], "current_device": s.endpoint == endpoint}
+            for s in subs
+        ],
         "slots": slots,
         "times": times,
     })
@@ -320,15 +331,14 @@ def push_test():
     data = request.get_json(silent=True) or {}
     endpoint = data.get("endpoint")
 
-    if endpoint:
-        subs = PushSubscription.query.filter_by(user_id=user.id, endpoint=endpoint).all()
-        label = "this device"
-    else:
-        subs = PushSubscription.query.filter_by(user_id=user.id).all()
-        label = f"{len(subs)} devices"
+    if not endpoint:
+        return jsonify({"error": "This device has no push subscription. Enable push notifications on this device first."}), 400
+
+    subs = PushSubscription.query.filter_by(user_id=user.id, endpoint=endpoint).all()
+    label = "this device"
 
     if not subs:
-        return jsonify({"error": "No push subscription saved"}), 400
+        return jsonify({"error": "No push subscription found for this device. Please enable push notifications on this device first."}), 400
 
     results = []
     expired = []

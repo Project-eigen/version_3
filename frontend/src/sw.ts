@@ -53,6 +53,19 @@ registerRoute(
   })
 )
 
+// ── Periodic background sync for medicine reminders ───────────────────────────
+// Fired by the browser periodically (interval set during page registration).
+// Tries to fetch fresh cabinet data. If the app is open, the NetworkFirst
+// strategy will serve the latest. If offline/unauth'd, it's a silent no-op.
+self.addEventListener('periodicsync', (event) => {
+  if (event.tag === 'medicine-check') {
+    event.waitUntil(
+      fetch(new Request('/api/notifications/settings', { mode: 'same-origin' }))
+        .catch(() => {})
+    )
+  }
+})
+
 // ── Push notification handler ─────────────────────────────────────────────────
 self.addEventListener('push', (event) => {
   if (!event.data) return

@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Bell, BellOff, MessageCircle, Clock,
-  Check, X, RefreshCw, Send, Unlink, Link, Loader2
+  Check, X, RefreshCw, Send, Unlink, Link, Loader2,
+  Smartphone
 } from 'lucide-react'
 import api from '../api/client'
 import Header from '../components/Header'
@@ -10,9 +11,17 @@ import Header from '../components/Header'
 // ── Types ─────────────────────────────────────────────────────────────────────
 type TimeSlotKey = 'morning' | 'afternoon' | 'evening' | 'night'
 
+interface PushDevice {
+  endpoint: string
+  current_device: boolean
+}
+
 interface NotifSettings {
   telegram_linked: boolean
   push_enabled: boolean
+  push_enabled_current_device: boolean
+  push_device_count: number
+  push_devices: PushDevice[]
   slots: TimeSlotKey[]
   times: Record<TimeSlotKey, string>
 }
@@ -41,6 +50,10 @@ export default function NotificationSettings() {
   const [testLoading, setTestLoading] = useState(false)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
 
+  // Current device's push endpoint
+  const [currentEndpoint, setCurrentEndpoint] = useState<string | null>(null)
+  const [subReady, setSubReady] = useState(false)
+
   // Telegram linking state
   const [tgModal, setTgModal] = useState(false)
   const [tgCode, setTgCode] = useState('')
@@ -63,14 +76,31 @@ export default function NotificationSettings() {
 
   // ── Load settings ───────────────────────────────────────────────────────────
   useEffect(() => {
-    api.get('/notifications/settings')
+    ;(async () => {
+      if ('serviceWorker' in navigator && 'PushManager' in window) {
+        try {
+          const sw = await navigator.serviceWorker.ready
+          const sub = await sw.pushManager.getSubscription()
+          setCurrentEndpoint(sub ? sub.endpoint : null)
+        } catch {}
+      }
+      setSubReady(true)
+    })()
+  }, [])
+
+  useEffect(() => {
+    if (!subReady) return
+    const url = currentEndpoint
+      ? `/notifications/settings?endpoint=${encodeURIComponent(currentEndpoint)}`
+      : '/notifications/settings'
+    api.get(url)
       .then((r) => {
         setSettings(r.data)
         setEditTimes({ ...{ morning: '08:00', afternoon: '13:00', evening: '18:00', night: '22:00' }, ...r.data.times })
       })
       .catch(() => showToast('Could not load notification settings', 'error'))
       .finally(() => setLoading(false))
-  }, [])
+  }, [subReady, currentEndpoint])
 
   // ── Toggle a slot on/off ────────────────────────────────────────────────────
   const toggleSlot = async (key: TimeSlotKey) => {
@@ -131,9 +161,11 @@ export default function NotificationSettings() {
       })
 
       await api.post('/notifications/push/subscribe', { subscription: sub.toJSON() })
-      const r = await api.get('/notifications/settings')
+      setCurrentEndpoint(sub.endpoint)
+      const r = await api.get(`/notifications/settings?endpoint=${encodeURIComponent(sub.endpoint)}`)
       setSettings(r.data)
-      showToast('Phone notifications enabled ✓')
+      showToast('Notifications enabled on this device ✓')
+      registerPeriodicSync()
     } catch (err: unknown) {
       showToast(
         err instanceof Error ? err.message : 'Failed to enable push notifications',
@@ -152,10 +184,17 @@ export default function NotificationSettings() {
       if (sub) {
         await api.post('/notifications/push/unsubscribe', { endpoint: sub.endpoint })
         await sub.unsubscribe()
+        setCurrentEndpoint(null)
+      }
+      const reg = await navigator.serviceWorker.ready
+      if ('periodicSync' in reg) {
+        try {
+          await (reg as any).periodicSync.unregister('medicine-check')
+        } catch {}
       }
       const r = await api.get('/notifications/settings')
       setSettings(r.data)
-      showToast('Phone notifications disabled on this device')
+      showToast('Notifications disabled on this device')
     } catch {
       showToast('Could not disable push notifications', 'error')
     } finally {
@@ -164,12 +203,13 @@ export default function NotificationSettings() {
   }
 
   const sendTestPush = async () => {
+    if (!currentEndpoint) {
+      showToast('Enable push on this device first before sending a test', 'error')
+      return
+    }
     setTestLoading(true)
     try {
-      const sw = await navigator.serviceWorker.ready
-      const sub = await sw.pushManager.getSubscription()
-      const endpoint = sub ? sub.endpoint : undefined
-      await api.post('/notifications/push/test', { endpoint })
+      await api.post('/notifications/push/test', { endpoint: currentEndpoint })
       showToast('Test notification sent to this device 🔔')
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error
@@ -235,6 +275,18 @@ export default function NotificationSettings() {
     }
   }
 
+  // ── Periodic background sync (PWA) ──────────────────────────────────────────
+  const registerPeriodicSync = async () => {
+    try {
+      const registration = await navigator.serviceWorker.ready
+      if ('periodicSync' in registration) {
+        await (registration as any).periodicSync.register('medicine-check', {
+          minInterval: 60 * 60 * 1000,
+        })
+      }
+    } catch {}
+  }
+
   // Cleanup polling on unmount
   useEffect(() => () => stopPolling(), [])
 
@@ -284,7 +336,7 @@ export default function NotificationSettings() {
           </div>
         </div>
 
-        {/* ── Section 1: Phone Notifications ─────────────────────────────── */}
+        {/* ── Section 1: Phone Notifications (per-device) ──────────────── */}
         <div className="notif-card">
           <div className="notif-card-header">
             <div className="notif-card-icon" style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}>
@@ -293,16 +345,36 @@ export default function NotificationSettings() {
             <div>
               <div className="notif-card-title">Phone Notifications</div>
               <div className="notif-card-sub">
-                {settings?.push_enabled ? '✅ Active — shows on lock screen' : 'Shows as a phone popup'}
+                {currentEndpoint
+                  ? '✅ Enabled on this device'
+                  : 'Not enabled on this device'}
+                {(settings?.push_device_count ?? 0) > 1 && (
+                  <span> · {settings!.push_device_count - 1} other device{(settings!.push_device_count - 1) !== 1 ? 's' : ''}</span>
+                )}
               </div>
             </div>
-            <div className="notif-status-pill" data-enabled={settings?.push_enabled}>
-              {settings?.push_enabled ? 'On' : 'Off'}
+            <div className="notif-status-pill" data-enabled={!!currentEndpoint}>
+              {currentEndpoint ? 'On' : 'Off'}
             </div>
           </div>
 
+          {/* Device list */}
+          {(settings?.push_devices?.length ?? 0) > 0 && (
+            <div className="notif-device-list">
+              {settings!.push_devices.map((d, i) => (
+                <div key={i} className={`notif-device-row ${d.current_device ? 'current' : ''}`}>
+                  <Smartphone size={13} />
+                  <span className="notif-device-label">
+                    {d.current_device ? 'This device' : `Device ${i + 1}`}
+                  </span>
+                  {d.current_device && <span className="notif-device-badge">current</span>}
+                </div>
+              ))}
+            </div>
+          )}
+
           <div className="notif-card-actions">
-            {settings?.push_enabled ? (
+            {currentEndpoint ? (
               <>
                 <button
                   className="notif-btn notif-btn-ghost"
@@ -324,7 +396,7 @@ export default function NotificationSettings() {
                   id="notif-disable-push-btn"
                 >
                   <BellOff size={14} />
-                  Disable
+                  Disable on this device
                 </button>
               </>
             ) : (
@@ -339,7 +411,7 @@ export default function NotificationSettings() {
                 {pushLoading
                   ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />
                   : <Bell size={14} />}
-                {pushLoading ? 'Requesting permission…' : 'Enable Phone Notifications'}
+                {pushLoading ? 'Requesting permission…' : 'Enable on this device'}
               </button>
             )}
           </div>
@@ -457,6 +529,11 @@ export default function NotificationSettings() {
           If any are due (and still within their prescribed days), you get a notification —
           even if your phone is locked. The <em>days</em> field from your prescriptions is used
           to automatically stop reminders when a course ends.
+        </div>
+        <div className="notif-explainer" style={{ marginTop: 6 }}>
+          <strong>Per-device:</strong> Enable notifications separately on each device.
+          "Send Test" targets only this device. The PWA also periodically syncs
+          in the background so medicine time changes reach you.
         </div>
       </div>
 
