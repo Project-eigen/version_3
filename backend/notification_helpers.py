@@ -64,11 +64,18 @@ def send_push_notification(
             "data": {"url": url},
         })
 
+        # Microsoft WNS (Edge on Windows) requires X-WNS-Type header
+        extra_headers = {}
+        endpoint = subscription.get("endpoint", "")
+        if "notify.windows.com" in endpoint:
+            extra_headers["X-WNS-Type"] = "wns/raw"
+
         webpush(
             subscription_info=subscription,
             data=payload,
             vapid_private_key=private_key,
             vapid_claims={"sub": f"mailto:{claims_email}"},
+            headers=extra_headers,
         )
         return True
 
@@ -82,7 +89,7 @@ def send_push_notification(
             except Exception:
                 pass
             log.error("Push send error (HTTP %s): %s | body: %s", status, exc, body)
-            if status in (400, 403, 404, 410):
+            if status in (404, 410):
                 return "expired"
             return f"push_service_error_{status}"
         log.error("Push send error: %s", exc)

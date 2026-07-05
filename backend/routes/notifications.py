@@ -295,6 +295,7 @@ def push_subscribe():
 
     existing = PushSubscription.query.filter_by(endpoint=endpoint).first()
     if existing:
+        existing.user_id = user.id
         existing.subscription_json = json.dumps(subscription)
     else:
         db.session.add(PushSubscription(
