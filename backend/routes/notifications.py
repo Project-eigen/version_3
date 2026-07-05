@@ -273,7 +273,11 @@ def vapid_public_key():
     user = get_current_user()
     if not user:
         return jsonify({"error": "Unauthorized"}), 401
-    return jsonify({"public_key": current_app.config.get("VAPID_PUBLIC_KEY", "")})
+    pub = current_app.config.get("VAPID_PUBLIC_KEY", "")
+    priv = current_app.config.get("VAPID_PRIVATE_KEY", "")
+    if not pub or not priv:
+        return jsonify({"error": "VAPID keys not configured on server. Set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY in environment.", "public_key": ""}), 500
+    return jsonify({"public_key": pub})
 
 
 @notifications_bp.route("/api/notifications/push/subscribe", methods=["POST"])
@@ -321,10 +325,16 @@ def push_unsubscribe():
 
 @notifications_bp.route("/api/notifications/push/test", methods=["POST"])
 def push_test():
-    """Sends a test push to the requesting device (or all if no endpoint given)."""
+    """Sends a test push to the requesting device."""
     user = get_current_user()
     if not user:
         return jsonify({"error": "Unauthorized"}), 401
+
+    # Pre-check VAPID config before touching the DB
+    priv = current_app.config.get("VAPID_PRIVATE_KEY", "")
+    pub = current_app.config.get("VAPID_PUBLIC_KEY", "")
+    if not priv or not pub:
+        return jsonify({"error": "Push not configured on server (VAPID keys missing). Add VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY to environment variables on Render."}), 500
 
     from notification_helpers import send_push_notification
 
@@ -335,7 +345,6 @@ def push_test():
         return jsonify({"error": "This device has no push subscription. Enable push notifications on this device first."}), 400
 
     subs = PushSubscription.query.filter_by(user_id=user.id, endpoint=endpoint).all()
-    label = "this device"
 
     if not subs:
         return jsonify({"error": "No push subscription found for this device. Please enable push notifications on this device first."}), 400
@@ -363,11 +372,18 @@ def push_test():
         db.session.commit()
 
     if all(r == "ok" for r in results):
-        return jsonify({"ok": True, "device": label})
+        return jsonify({"ok": True})
     if any(r == "ok" for r in results):
         errors = [r for r in results if r != "ok"]
-        return jsonify({"warning": f"Partial success — {label}", "errors": errors}), 200
-    return jsonify({"error": f"Failed: {results[0]}"}), 500
+        return jsonify({"warning": "Partial success", "errors": errors}), 200
+
+    error_msg = results[0] if results else "unknown error"
+    if error_msg == "False":
+        return jsonify({"error": "Push notification failed — VAPID keys may be missing or pywebpush not installed on the server. Check server logs."}), 500
+    if error_msg.startswith("push_error_"):
+        kind = error_msg.replace("push_error_", "")
+        return jsonify({"error": f"Push service error: {kind}. Check server logs for details."}), 500
+    return jsonify({"error": f"Push failed: {error_msg}"}), 500
 
 
 # ── Utility: re-register Telegram webhook ────────────────────────────────────

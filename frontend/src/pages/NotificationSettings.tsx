@@ -148,6 +148,10 @@ export default function NotificationSettings() {
 
       // Fetch VAPID public key
       const keyRes = await api.get('/notifications/push/vapid-key')
+      if (keyRes.data.error) {
+        showToast(keyRes.data.error, 'error')
+        return
+      }
       const vapidKey: string = keyRes.data.public_key
       if (!vapidKey) {
         showToast('Push is not configured yet (missing VAPID key)', 'error')
@@ -155,10 +159,30 @@ export default function NotificationSettings() {
       }
 
       const sw = await navigator.serviceWorker.ready
-      const sub = await sw.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: await urlBase64ToUint8Array(vapidKey),
-      })
+      let sub: PushSubscription
+      try {
+        sub = await sw.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: await urlBase64ToUint8Array(vapidKey),
+        })
+      } catch (subErr: any) {
+        // Detect Brave — it blocks pushManager.subscribe() when Shields are up
+        const isBrave = 'brave' in navigator && typeof (navigator as any).brave?.isBrave === 'function'
+          ? await (navigator as any).brave.isBrave()
+          : false
+        if (isBrave) {
+          showToast(
+            'Brave Shields is blocking push notifications. Click the lion icon in the URL bar → set "Shields" to "Down" for this site, then try again.',
+            'error',
+          )
+          return
+        }
+        showToast(
+          'Your browser blocked the push subscription. Check notifications permissions in site settings.',
+          'error',
+        )
+        return
+      }
 
       await api.post('/notifications/push/subscribe', { subscription: sub.toJSON() })
       setCurrentEndpoint(sub.endpoint)
@@ -167,10 +191,8 @@ export default function NotificationSettings() {
       showToast('Notifications enabled on this device ✓')
       registerPeriodicSync()
     } catch (err: unknown) {
-      showToast(
-        err instanceof Error ? err.message : 'Failed to enable push notifications',
-        'error',
-      )
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error
+      showToast(msg || (err instanceof Error ? err.message : 'Failed to enable push notifications'), 'error')
     } finally {
       setPushLoading(false)
     }
