@@ -2410,3 +2410,62 @@ body {
   from { transform: translateY(100%); }
   to { transform: translateY(0); }
 }
+
+
+/* ===================== UNPARSED LINES HELPER ===================== */
+.unparsed-alert-box {
+  background: rgba(234, 179, 8, 0.05);
+  border: 1px dashed rgba(234, 179, 8, 0.25);
+  border-radius: 16px;
+  padding: 16px;
+  margin-bottom: 20px;
+}
+
+.unparsed-alert-title {
+  display: block;
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #facc15;
+  margin-bottom: 6px;
+}
+
+.unparsed-alert-desc {
+  font-size: 0.76rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  margin-bottom: 12px;
+}
+
+.unparsed-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.unparsed-chip-btn {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 100px;
+  color: var(--text-primary);
+  font-size: 0.72rem;
+  font-weight: 500;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.unparsed-chip-btn:hover {
+  background: rgba(13, 148, 136, 0.1);
+  border-color: var(--accent-teal);
+  color: var(--accent-cyan);
+  transform: translateY(-1px);
+}
+
+.unparsed-chip-btn:active {
+  transform: scale(0.96);
+}

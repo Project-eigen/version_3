@@ -104,6 +104,9 @@ export default function ScanApproval() {
   const [activePhotoIdx, setActivePhotoIdx] = useState<number | null>(null)
   const [lightboxOpen, setLightboxOpen] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [unparsedLines, setUnparsedLines] = useState<string[]>(() => {
+    return state?.scanData?.extracted?.unparsed_lines || []
+  })
 
   const [members, setMembers] = useState<User[]>([])
   const [targetMemberId, setTargetMemberId] = useState<number>(() => {
@@ -183,6 +186,23 @@ export default function ScanApproval() {
         packFile: null,
       },
     ])
+  }
+
+  const handleAddUnparsed = (line: string) => {
+    setMedicines((prev) => [
+      ...prev,
+      {
+        id: `unparsed-${Date.now()}`,
+        name: line,
+        dosage: '',
+        schedule: [],
+        days: '',
+        instructions: '',
+        packImage: null,
+        packFile: null,
+      },
+    ])
+    setUnparsedLines((prev) => prev.filter((l) => l !== line))
   }
 
   const triggerPhotoUpload = (idx: number) => {
@@ -313,6 +333,28 @@ export default function ScanApproval() {
               {medicines.length} found
             </span>
           </div>
+
+          {/* Unparsed Text Helper */}
+          {unparsedLines.length > 0 && (
+            <div className="unparsed-alert-box">
+              <span className="unparsed-alert-title">🔍 Unparsed Text Detected</span>
+              <p className="unparsed-alert-desc">
+                We found lines we couldn't parse cleanly. Tap any line below to quickly add it as a card:
+              </p>
+              <div className="unparsed-chips">
+                {unparsedLines.map((line, index) => (
+                  <button
+                    key={index}
+                    className="unparsed-chip-btn"
+                    onClick={() => handleAddUnparsed(line)}
+                    type="button"
+                  >
+                    + {line}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Cards List */}
           <div className="medicines-approval-list">

@@ -144,6 +144,7 @@ export default function Cabinet() {
   const [toast, setToast] = useState<string | null>(null)
   const [activeLightboxImage, setActiveLightboxImage] = useState<string | null>(null)
   const hasFetchedOnce = useRef(false)
+  const [customTimes, setCustomTimes] = useState<Record<string, string>>({})
 
   const showToast = (msg: string) => {
     setToast(msg)
@@ -176,12 +177,16 @@ export default function Cabinet() {
   useEffect(() => {
     if (!user?.id) return
     const init = async () => {
-      const [membersRes, inboxRes] = await Promise.allSettled([
+      const [membersRes, inboxRes, settingsRes] = await Promise.allSettled([
         api.get('/family/members'),
         api.get('/family/inbox'),
+        api.get('/api/notifications/settings'),
       ])
       if (membersRes.status === 'fulfilled') setMembers(membersRes.value.data.members || [])
       if (inboxRes.status === 'fulfilled') setInboxCount(inboxRes.value.data.requests?.length ?? 0)
+      if (settingsRes.status === 'fulfilled') {
+        setCustomTimes(settingsRes.value.data.settings?.times || {})
+      }
     }
     init()
   }, [user])
@@ -268,11 +273,26 @@ export default function Cabinet() {
             {TIME_SLOTS.map(({ key, label, time }) => {
               const meds = medicinesBySlot(key)
               if (meds.length === 0) return null
+
+              const customTime = customTimes[key]
+              let timeDisplay = time
+              if (customTime) {
+                try {
+                  const [hStr, mStr] = customTime.split(':')
+                  const hour = parseInt(hStr, 10)
+                  const ampm = hour >= 12 ? 'PM' : 'AM'
+                  const displayHour = hour % 12 || 12
+                  timeDisplay = `${displayHour}:${mStr} ${ampm}`
+                } catch {
+                  timeDisplay = customTime
+                }
+              }
+
               return (
                 <div key={key}>
                   <div className={`time-band-header ${key}`}>
                     <span>
-                      {label.toUpperCase()} ({time})
+                      {label.toUpperCase()} ({timeDisplay})
                     </span>
                   </div>
                   {meds.map((med) => (

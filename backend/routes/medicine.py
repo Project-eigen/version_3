@@ -25,6 +25,9 @@ For each medicine found, extract ALL of the following fields:
 - "instructions": administration instructions exactly as written (e.g. "After Food", "Before Breakfast", "S/C", "At Bed Time", "With Water"). Return null if not found.
 - "confidence": estimate of OCR certainty based on handwriting legibility/clarity. Use ONLY "high" (for clear printed text/well-written print), "medium" (for average cursive/regular handwriting), or "low" (for scribbles, smudges, or highly ambiguous notes).
 
+Also, extract a list of "unparsed_lines":
+- "unparsed_lines": a list of strings containing any other text lines or handwritten scribbles on the prescription that look like drug names, dosage instructions, or other clinical notes but couldn't be fully structured or parsed into the medicines list. Return an empty list if none.
+
 For handwritten prescriptions:
 - Read the medicine name even if abbreviated (e.g. "Pan D" = "Pan-D", "PCM" = "Paracetamol").
 - Infer schedule from notations like "1-0-1" (morning and night), "1-1-1" (morning, afternoon, night), "OD" (once daily = morning), "BD" (twice = morning + night), "TDS" (three times = morning, afternoon, night), "QDS" (four times = all slots).
@@ -41,6 +44,10 @@ Return ONLY a valid JSON object with this exact structure, no markdown, no expla
       "instructions": "After Food",
       "confidence": "high"
     }
+  ],
+  "unparsed_lines": [
+    "Syp. Combiflam 100ml - SOS",
+    "Tab. Limcee - once daily"
   ]
 }
 
