@@ -59,6 +59,8 @@ export default function NotificationSettings() {
   const [tgCode, setTgCode] = useState('')
   const [tgBotUsername, setTgBotUsername] = useState('DawaiSathiBot')
   const [tgPolling, setTgPolling] = useState(false)
+  const [tgCopied, setTgCopied] = useState(false)
+  const [tgLinked, setTgLinked] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const pollCountRef = useRef(0)
 
@@ -269,9 +271,12 @@ export default function NotificationSettings() {
         const res = await api.get('/notifications/telegram/status')
         if (res.data.linked) {
           stopPolling()
-          setTgModal(false)
+          setTgLinked(true)
           setSettings((s) => s ? { ...s, telegram_linked: true } : s)
-          showToast('Telegram linked successfully! ✓')
+          setTimeout(() => {
+            setTgModal(false)
+            setTgLinked(false)
+          }, 3000)
         }
       } catch {
         // ignore transient errors during polling
@@ -285,6 +290,24 @@ export default function NotificationSettings() {
       pollRef.current = null
     }
     setTgPolling(false)
+  }
+
+  const handleCopyCode = async () => {
+    if (!tgCode) return
+    try {
+      await navigator.clipboard.writeText(tgCode)
+    } catch {
+      const ta = document.createElement('textarea')
+      ta.value = tgCode
+      ta.style.position = 'fixed'
+      ta.style.opacity = '0'
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand('copy')
+      document.body.removeChild(ta)
+    }
+    setTgCopied(true)
+    setTimeout(() => setTgCopied(false), 2500)
   }
 
   const unlinkTelegram = async () => {
@@ -561,47 +584,96 @@ export default function NotificationSettings() {
 
       {/* ── Telegram Linking Modal ──────────────────────────────────────────── */}
       {tgModal && (
-        <div className="modal-overlay" onClick={() => { stopPolling(); setTgModal(false) }}>
-          <div className="modal-box tg-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="tg-modal-icon">✈️</div>
-            <h2 className="tg-modal-title">Link Telegram</h2>
-            <p className="tg-modal-desc">
-              Open Telegram and send this code to{' '}
+        <div className="modal-overlay modal-overlay-center" onClick={() => { stopPolling(); setTgModal(false); setTgLinked(false) }}>
+          <div className="tg-dialog" onClick={(e) => e.stopPropagation()}>
+
+            {/* Telegram Icon (Real SVG) */}
+            <div className="tg-logo-circle">
+              <svg viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">
+                <path d="M11.944 0A12 12 0 000 12a12 12 0 0012 12 12 12 0 0012-12A12 12 0 0012 0a12 12 0 00-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 01.171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.26-1.911.177-.183 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
+              </svg>
+            </div>
+
+            <h2 className="tg-title">Link Telegram</h2>
+            <p className="tg-subtitle">
+              Send this code to{' '}
               <a
                 href={`https://t.me/${tgBotUsername}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                style={{ color: 'var(--accent-teal)', fontWeight: 600 }}
               >
                 @{tgBotUsername}
               </a>
             </p>
 
+            {/* Code digits */}
             <div className="tg-code-box">
               {tgCode.split('').map((digit, i) => (
-                <span key={i} className="tg-code-digit">{digit}</span>
+                <span key={i} className={`tg-code-digit ${tgCopied || tgLinked ? 'filled' : ''}`} style={{ transitionDelay: `${i * 60}ms` }}>{digit}</span>
               ))}
             </div>
 
-            {tgPolling && (
+            {/* Action buttons */}
+            <div className="tg-action-row">
+              <button
+                className={`tg-btn tg-btn-copy ${tgCopied ? 'copied' : ''}`}
+                onClick={handleCopyCode}
+                type="button"
+                id="tg-copy-code-btn"
+                aria-label="Copy Telegram code"
+              >
+                {tgCopied ? '✓' : '📋'}
+                {tgCopied ? 'Copied!' : 'Copy Code'}
+              </button>
+              <a
+                className="tg-btn tg-btn-telegram"
+                href={`https://t.me/${tgBotUsername}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                id="tg-open-btn"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="white" style={{ flexShrink: 0 }}>
+                  <path d="M11.944 0A12 12 0 000 12a12 12 0 0012 12 12 12 0 0012-12A12 12 0 0012 0a12 12 0 00-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 01.171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.26-1.911.177-.183 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
+                </svg>
+                Open Telegram
+              </a>
+            </div>
+
+            {/* Waiting + countdown */}
+            {tgPolling && !tgLinked && (
               <div className="tg-waiting">
                 <RefreshCw size={14} style={{ animation: 'spin 1s linear infinite' }} />
                 Waiting for you to send the code…
               </div>
             )}
+            {!tgLinked && (
+              <div className="tg-countdown">Code expires in 10 minutes</div>
+            )}
 
-            <p className="tg-modal-desc" style={{ marginTop: 8, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-              Code expires in 10 minutes
-            </p>
+            {/* Success state (in-card) */}
+            {tgLinked && (
+              <div className="tg-success-overlay">
+                <div className="tg-success-check">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12"/>
+                  </svg>
+                </div>
+                <div className="tg-success-text">Telegram Linked! 🎉</div>
+                <div className="tg-success-sub">You'll now get reminders on Telegram</div>
+              </div>
+            )}
 
-            <button
-              className="notif-btn notif-btn-ghost"
-              onClick={() => { stopPolling(); setTgModal(false) }}
-              type="button"
-              style={{ width: '100%', marginTop: 8 }}
-            >
-              <X size={14} /> Cancel
-            </button>
+            {/* Cancel */}
+            {!tgLinked && (
+              <button
+                className="tg-cancel-btn"
+                onClick={() => { stopPolling(); setTgModal(false); setTgLinked(false) }}
+                type="button"
+                id="tg-cancel-btn"
+              >
+                ✕ Cancel
+              </button>
+            )}
           </div>
         </div>
       )}

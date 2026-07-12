@@ -1874,64 +1874,298 @@ body {
   color: white;
 }
 
-/* Telegram modal */
-.tg-modal {
-  text-align: center;
-  padding: 32px 24px;
+/* ── Telegram Linking Modal (Redesigned) ──────────── */
+
+/* Centered overlay variant — overrides bottom-sheet alignment */
+.modal-overlay-center {
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+/* Dialog card */
+.tg-dialog {
+  width: calc(100% - 32px);
   max-width: 320px;
+  background: var(--bg-secondary);
+  border-radius: 24px;
+  padding: 32px 24px 28px;
+  text-align: center;
+  box-shadow:
+    0 20px 60px rgba(15, 23, 42, 0.2),
+    0 0 0 1px rgba(255, 255, 255, 0.06);
+  animation: tgModalEnter 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  position: relative;
+  overflow: hidden;
 }
 
-.tg-modal-icon {
-  font-size: 2.5rem;
-  margin-bottom: 12px;
+.tg-dialog::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--accent-teal), #3b82f6, #8b5cf6);
 }
 
-.tg-modal-title {
+@keyframes tgModalEnter {
+  from {
+    opacity: 0;
+    transform: scale(0.88) translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Telegram logo circle */
+.tg-logo-circle {
+  width: 60px;
+  height: 60px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #0088cc, #009fde);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 16px;
+  box-shadow: 0 6px 20px rgba(0, 136, 204, 0.3);
+}
+
+.tg-logo-circle svg {
+  width: 32px;
+  height: 32px;
+  display: block;
+}
+
+/* Title & subtitle */
+.tg-title {
   font-family: 'Space Grotesk', sans-serif;
-  font-size: 1.2rem;
+  font-size: 1.1rem;
   font-weight: 700;
   color: var(--text-primary);
-  margin: 0 0 8px;
+  margin: 0 0 4px;
 }
 
-.tg-modal-desc {
-  font-size: 0.83rem;
+.tg-subtitle {
+  font-size: 0.8rem;
   color: var(--text-secondary);
-  margin: 0 0 20px;
   line-height: 1.5;
+  margin: 0 0 20px;
 }
 
+.tg-subtitle a {
+  color: var(--accent-teal);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.tg-subtitle a:active {
+  text-decoration: underline;
+}
+
+/* Code digit boxes */
 .tg-code-box {
   display: flex;
   justify-content: center;
-  gap: 6px;
-  margin-bottom: 16px;
+  gap: 8px;
+  margin-bottom: 18px;
 }
 
 .tg-code-digit {
-  width: 38px;
-  height: 48px;
-  border-radius: 10px;
+  width: 40px;
+  height: 50px;
+  border-radius: 11px;
   background: var(--bg-surface);
-  border: 2px solid var(--accent-teal);
+  border: 2px solid var(--border-glow);
   display: flex;
   align-items: center;
   justify-content: center;
   font-family: 'Space Grotesk', sans-serif;
-  font-size: 1.4rem;
+  font-size: 1.35rem;
   font-weight: 700;
   color: var(--accent-teal);
   box-shadow: 0 2px 8px var(--accent-teal-glow);
+  transition: all 0.25s ease;
+  transition-delay: 0s;
 }
 
+.tg-code-digit.filled {
+  background: var(--accent-teal);
+  color: white;
+  border-color: var(--accent-teal-dark);
+  animation: tgDigitPop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes tgDigitPop {
+  0% { transform: scale(0.75); }
+  55% { transform: scale(1.12); }
+  100% { transform: scale(1); }
+}
+
+/* Action buttons row */
+.tg-action-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.tg-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 11px 12px;
+  border-radius: 12px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  font-family: 'Inter', sans-serif;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-decoration: none;
+}
+
+.tg-btn:active {
+  transform: scale(0.95);
+}
+
+.tg-btn-copy {
+  background: var(--accent-teal-glow);
+  color: var(--accent-teal);
+  border: 1px solid var(--border-glow);
+}
+
+.tg-btn-copy:active {
+  background: rgba(13, 148, 136, 0.2);
+}
+
+.tg-btn-copy.copied {
+  background: rgba(22, 163, 74, 0.12);
+  color: #16a34a;
+  border-color: rgba(22, 163, 74, 0.25);
+}
+
+.tg-btn-telegram {
+  background: linear-gradient(135deg, #0088cc, #00a9e0);
+  color: white;
+  box-shadow: 0 3px 12px rgba(0, 136, 204, 0.25);
+}
+
+.tg-btn-telegram:active {
+  box-shadow: 0 1px 6px rgba(0, 136, 204, 0.2);
+}
+
+/* Waiting state */
 .tg-waiting {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  font-size: 0.78rem;
+  gap: 8px;
+  font-size: 0.76rem;
   color: var(--text-muted);
-  margin-bottom: 8px;
+  margin-bottom: 6px;
+}
+
+/* Countdown */
+.tg-countdown {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  margin-bottom: 14px;
+}
+
+/* Cancel button */
+.tg-cancel-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 10px;
+  border-radius: 10px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-family: 'Inter', sans-serif;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.tg-cancel-btn:active {
+  color: var(--text-secondary);
+}
+
+/* ── Success overlay (in-card) ───────────────── */
+.tg-success-overlay {
+  padding: 8px 0 12px;
+  animation: tgFadeIn 0.35s ease;
+}
+
+.tg-success-check {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 12px;
+  box-shadow: 0 6px 20px rgba(22, 163, 74, 0.35);
+  animation: tgCheckPop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.tg-success-check svg {
+  width: 28px;
+  height: 28px;
+  display: block;
+}
+
+@keyframes tgCheckPop {
+  0% { transform: scale(0); }
+  60% { transform: scale(1.15); }
+  100% { transform: scale(1); }
+}
+
+.tg-success-text {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.tg-success-sub {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+@keyframes tgFadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Responsive: smaller digits on narrow screens */
+@media (max-width: 380px) {
+  .tg-dialog {
+    padding: 24px 18px 22px;
+  }
+  .tg-code-digit {
+    width: 34px;
+    height: 44px;
+    font-size: 1.15rem;
+  }
+  .tg-code-box {
+    gap: 6px;
+  }
+  .tg-btn {
+    font-size: 0.72rem;
+    padding: 10px 8px;
+  }
 }
 
 /* Explainer box */
