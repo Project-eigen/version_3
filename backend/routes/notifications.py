@@ -435,3 +435,67 @@ def trigger_check():
         return jsonify({"ok": True, "message": "Notification check executed"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+# ── Utility: sync offline notification logs ───────────────────────────────────
+
+@notifications_bp.route("/api/notifications/sync", methods=["POST"])
+def sync_notification_logs():
+    """Two-way sync of notification logs between IndexedDB and PostgreSQL/SQLite."""
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json(silent=True) or {}
+    local_logs = data.get("logs", [])
+    
+    from models import NotificationLog
+    from datetime import date
+    
+    synced_count = 0
+    for log_item in local_logs:
+        try:
+            log_date = datetime.strptime(log_item["date"], "%Y-%m-%d").date()
+            time_slot = log_item["slot"]
+            channel = log_item.get("channel", "local")
+            
+            already = NotificationLog.query.filter_by(
+                user_id=user.id,
+                date=log_date,
+                time_slot=time_slot
+            ).first()
+            
+            if not already:
+                db.session.add(NotificationLog(
+                    user_id=user.id,
+                    date=log_date,
+                    time_slot=time_slot,
+                    channel=channel,
+                    sent_at=datetime.utcnow()
+                ))
+                synced_count += 1
+        except Exception as ex:
+            log.error("Failed to parse/sync log item %s: %s", log_item, ex)
+            
+    if synced_count > 0:
+        db.session.commit()
+        
+    seven_days_ago = date.today() - timedelta(days=7)
+    recent_logs = NotificationLog.query.filter(
+        NotificationLog.user_id == user.id,
+        NotificationLog.date >= seven_days_ago
+    ).all()
+    
+    return jsonify({
+        "ok": True,
+        "synced": synced_count,
+        "recent_logs": [
+            {
+                "date": rl.date.isoformat(),
+                "slot": rl.time_slot,
+                "channel": rl.channel
+            }
+            for rl in recent_logs
+        ]
+    })
+

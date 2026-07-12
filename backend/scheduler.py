@@ -142,7 +142,7 @@ def _check_user(user, now_utc: datetime, db) -> None:
                     sub.subscription_json,
                     title=f"💊 {slot_label} Medicines ({time_display})",
                     body=push_body,
-                    url="/cabinet",
+                    url=f"/cabinet?date={today.isoformat()}&slot={slot}",
                 )
                 if result == "expired":
                     db.session.delete(sub)

@@ -1,6 +1,7 @@
-import React, { lazy, Suspense } from 'react'
+import React, { lazy, Suspense, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
+import api from './api/client'
 
 // Lazy-loaded pages — each page becomes its own JS chunk.
 // This means the browser only downloads what the user actually navigates to,
@@ -42,6 +43,78 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 function AppRoutes() {
   const { user, loading } = useAuth()
+
+  useEffect(() => {
+    if (!user) return
+
+    const runSync = async () => {
+      try {
+        // 1. Open local database and fetch local logs
+        const db = await new Promise<IDBDatabase>((resolve, reject) => {
+          const req = indexedDB.open('dawaisathi-offline', 1)
+          req.onupgradeneeded = (e: any) => {
+            const dbObj = e.target.result
+            if (!dbObj.objectStoreNames.contains('logs')) {
+              dbObj.createObjectStore('logs', { keyPath: 'id' })
+            }
+            if (!dbObj.objectStoreNames.contains('schedules')) {
+              dbObj.createObjectStore('schedules')
+            }
+          }
+          req.onsuccess = (e: any) => resolve(e.target.result)
+          req.onerror = (e: any) => reject(e.target.error)
+        })
+
+        const logsList = await new Promise<any[]>((resolve, reject) => {
+          const tx = db.transaction('logs', 'readonly')
+          const store = tx.objectStore('logs')
+          const req = store.getAll()
+          req.onsuccess = () => resolve(req.result || [])
+          req.onerror = () => reject(req.error)
+        })
+
+        // 2. Push any offline-triggered notification logs to the server
+        if (logsList.length > 0) {
+          const syncResp = await api.post('/api/notifications/sync', { logs: logsList })
+          if (syncResp.data.ok) {
+            const idsToClear = logsList.map(l => l.id)
+            await new Promise<void>((resolve, reject) => {
+              const tx = db.transaction('logs', 'readwrite')
+              const store = tx.objectStore('logs')
+              idsToClear.forEach(id => store.delete(id))
+              tx.oncomplete = () => resolve()
+              tx.onerror = (e: any) => reject(e.target.error)
+            })
+          }
+        }
+
+        // 3. Fetch latest active medicines and configurations
+        const [settingsRes, medicineRes] = await Promise.all([
+          api.get('/api/notifications/settings'),
+          api.get('/api/medicine')
+        ])
+
+        const slots = ['morning', 'afternoon', 'evening', 'night'].filter(
+          s => settingsRes.data.settings?.[s]
+        )
+        const times = settingsRes.data.settings?.times || {}
+        const medicines = medicineRes.data.medicines || []
+
+        // 4. Send the data to the Service Worker
+        if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+          navigator.serviceWorker.controller.postMessage({
+            type: 'SYNC_SCHEDULES',
+            payload: { slots, times, medicines }
+          })
+        }
+      } catch (err) {
+        console.error('[App] Notification sync failed:', err)
+      }
+    }
+
+    runSync()
+  }, [user])
+
   if (loading) return <PageSuspense />
 
   return (
