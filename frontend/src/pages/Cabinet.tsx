@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext'
 import AppLayout from '../components/AppLayout'
 import api, { getImageUrl } from '../api/client'
 import type { User, MedicineEntry, TimeSlot } from '../types'
-import { Pill, Archive, X, Trash2 } from 'lucide-react'
+import { Pill, Archive, X, Trash2, Pencil } from 'lucide-react'
 
 const TIME_SLOTS: { key: TimeSlot; label: string; time: string }[] = [
   { key: 'morning', label: 'Morning', time: '8:00 AM' },
@@ -18,9 +18,10 @@ interface MedCardProps {
   onLog: (entryId: number, slot: TimeSlot) => Promise<void>
   onImageClick: (url: string) => void
   onDelete: (entryId: number) => Promise<void>
+  onEdit: (med: MedicineEntry) => void
 }
 
-function MedicineCard({ med, slot, onLog, onImageClick, onDelete }: MedCardProps) {
+function MedicineCard({ med, slot, onLog, onImageClick, onDelete, onEdit }: MedCardProps) {
   const isLogged = med.today_logs?.includes(slot) ?? false
   const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [holding, setHolding] = useState(false)
@@ -54,9 +55,8 @@ function MedicineCard({ med, slot, onLog, onImageClick, onDelete }: MedCardProps
   }
 
   const handleThumbClick = () => {
-    const imgUrl = med.pack_image_url || med.scan_image_url
-    if (imgUrl) {
-      onImageClick(getImageUrl(imgUrl))
+    if (med.pack_image_url) {
+      onImageClick(getImageUrl(med.pack_image_url))
     }
   }
 
@@ -66,11 +66,11 @@ function MedicineCard({ med, slot, onLog, onImageClick, onDelete }: MedCardProps
       <div
         className="med-thumb"
         onClick={handleThumbClick}
-        style={{ cursor: med.pack_image_url || med.scan_image_url ? 'pointer' : 'default' }}
+        style={{ cursor: med.pack_image_url ? 'pointer' : 'default' }}
       >
-        {med.pack_image_url || med.scan_image_url ? (
+        {med.pack_image_url ? (
           <img
-            src={getImageUrl(med.pack_image_url || med.scan_image_url)}
+            src={getImageUrl(med.pack_image_url)}
             alt={med.name}
             width={56}
             height={56}
@@ -85,7 +85,19 @@ function MedicineCard({ med, slot, onLog, onImageClick, onDelete }: MedCardProps
 
       {/* Info */}
       <div className="med-info" style={{ flex: 1 }}>
-        <div className="med-name">{med.name}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <div className="med-name">{med.name}</div>
+          {med.scan_image_url && (
+            <button
+              className="view-rx-badge"
+              onClick={() => onImageClick(med.scan_image_url)}
+              title="View original prescription reference"
+              type="button"
+            >
+              Rx
+            </button>
+          )}
+        </div>
         {med.dosage && <div className="med-dosage">{med.dosage}</div>}
         {med.instructions && (
           <div className="med-instructions">{med.instructions}</div>
@@ -95,8 +107,17 @@ function MedicineCard({ med, slot, onLog, onImageClick, onDelete }: MedCardProps
         )}
       </div>
 
-      {/* Action panel: Delete + Hold button */}
+      {/* Action panel: Edit + Delete + Hold button */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <button
+          className="edit-med-btn"
+          onClick={() => onEdit(med)}
+          aria-label="Edit medicine"
+          type="button"
+        >
+          <Pencil size={15} />
+        </button>
+
         <button
           className="delete-med-btn"
           onClick={() => {
@@ -143,6 +164,7 @@ export default function Cabinet() {
   const [isFetching, setIsFetching] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [activeLightboxImage, setActiveLightboxImage] = useState<string | null>(null)
+  const [editingMed, setEditingMed] = useState<MedicineEntry | null>(null)
   const hasFetchedOnce = useRef(false)
   const [customTimes, setCustomTimes] = useState<Record<string, string>>({})
 
@@ -303,6 +325,7 @@ export default function Cabinet() {
                       onLog={handleLog}
                       onImageClick={setActiveLightboxImage}
                       onDelete={handleDeleteMed}
+                      onEdit={setEditingMed}
                     />
                   ))}
                 </div>
@@ -329,7 +352,200 @@ export default function Cabinet() {
         </div>
       )}
 
+      {/* Edit Medicine Modal */}
+      {editingMed && (
+        <EditMedicineModal
+          med={editingMed}
+          onClose={() => setEditingMed(null)}
+          onSave={(updated) => {
+            setMedicines((prev) => prev.map((m) => (m.id === updated.id ? updated : m)))
+            setEditingMed(null)
+            showToast('✓ Medicine details updated')
+          }}
+        />
+      )}
+
       {toast && <div className="toast success">{toast}</div>}
     </>
+  )
+}
+
+interface EditMedicineModalProps {
+  med: MedicineEntry
+  onClose: () => void
+  onSave: (updated: MedicineEntry) => void
+}
+
+function EditMedicineModal({ med, onClose, onSave }: EditMedicineModalProps) {
+  const [name, setName] = useState(med.name)
+  const [dosage, setDosage] = useState(med.dosage || '')
+  const [schedule, setSchedule] = useState<TimeSlot[]>(() => {
+    try {
+      return JSON.parse(med.schedule_json || '[]')
+    } catch {
+      return []
+    }
+  })
+  const [days, setDays] = useState(med.days != null ? String(med.days) : '')
+  const [instructions, setInstructions] = useState(med.instructions || '')
+  const [packImagePreview, setPackImagePreview] = useState<string | null>(med.pack_image_url)
+  const [packFile, setPackFile] = useState<File | null>(null)
+  const [saving, setSaving] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const toggleSchedule = (slot: TimeSlot) => {
+    setSchedule((prev) =>
+      prev.includes(slot) ? prev.filter((s) => s !== slot) : [...prev, slot]
+    )
+  }
+
+  const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      setPackFile(file)
+      setPackImagePreview(URL.createObjectURL(file))
+    }
+  }
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!name.trim()) return
+
+    setSaving(true)
+    try {
+      const formData = new FormData()
+      formData.append('name', name)
+      formData.append('dosage', dosage)
+      formData.append('schedule', JSON.stringify(schedule))
+      formData.append('days', days)
+      formData.append('instructions', instructions)
+      if (packFile) {
+        formData.append('pack_image', packFile)
+      }
+
+      const res = await api.post(`/medicine/update/${med.id}`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+
+      if (res.data.medicine) {
+        onSave(res.data.medicine)
+      }
+    } catch (err) {
+      console.error(err)
+      alert('Failed to update medicine parameters.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="lightbox-overlay" style={{ zIndex: 600 }}>
+      <div className="edit-modal-content" onClick={(e) => e.stopPropagation()}>
+        <div className="edit-modal-header">
+          <h3>Edit Medicine</h3>
+          <button className="edit-modal-close" onClick={onClose} type="button">
+            <X size={20} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSave} className="edit-modal-form">
+          <div className="field-row">
+            <div className="field-label">Medicine Name</div>
+            <input
+              className="field-input"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Paracetamol 650mg"
+              required
+            />
+          </div>
+
+          <div style={{ display: 'flex', gap: 12 }}>
+            <div className="field-row" style={{ flex: 1 }}>
+              <div className="field-label">Dosage</div>
+              <input
+                className="field-input"
+                value={dosage}
+                onChange={(e) => setDosage(e.target.value)}
+                placeholder="e.g. 1 tab"
+              />
+            </div>
+            <div className="field-row" style={{ width: '90px' }}>
+              <div className="field-label">Days</div>
+              <input
+                className="field-input"
+                type="number"
+                min="1"
+                value={days}
+                onChange={(e) => setDays(e.target.value)}
+                placeholder="e.g. 5"
+              />
+            </div>
+          </div>
+
+          <div className="field-row">
+            <div className="field-label">Schedule</div>
+            <div className="schedule-chips" style={{ marginTop: 4 }}>
+              {TIME_SLOTS.map(({ key, label }) => (
+                <button
+                  key={key}
+                  type="button"
+                  className={`schedule-chip ${key} ${schedule.includes(key) ? 'selected' : ''}`}
+                  onClick={() => toggleSchedule(key)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="field-row">
+            <div className="field-label">Instructions</div>
+            <input
+              className="field-input"
+              value={instructions}
+              onChange={(e) => setInstructions(e.target.value)}
+              placeholder="e.g. After Food"
+            />
+          </div>
+
+          <div className="field-row">
+            <div className="field-label">Packaging Photo</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4 }}>
+              <div className="edit-photo-preview">
+                {packImagePreview ? (
+                  <img src={getImageUrl(packImagePreview)} alt="Pack Preview" />
+                ) : (
+                  <Pill size={20} color="var(--text-muted)" />
+                )}
+              </div>
+              <button
+                type="button"
+                className="attach-photo-row-btn"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                Change Photo
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handlePhotoSelect}
+                style={{ display: 'none' }}
+              />
+            </div>
+          </div>
+
+          <div className="edit-modal-footer">
+            <button type="button" className="btn-secondary" onClick={onClose} disabled={saving}>
+              Cancel
+            </button>
+            <button type="submit" className="btn-primary" disabled={saving}>
+              {saving ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   )
 }

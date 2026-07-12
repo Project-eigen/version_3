@@ -295,6 +295,64 @@ def delete_medicine(entry_id):
     return jsonify({"message": "Medicine permanently deleted"})
 
 
+@medicine_bp.route("/api/medicine/update/<int:entry_id>", methods=["POST"])
+def update_medicine(entry_id):
+    """Update an existing medicine entry."""
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    entry = MedicineEntry.query.get(entry_id)
+    if not entry:
+        return jsonify({"error": "Medicine entry not found"}), 404
+
+    # Security: Ensure entry belongs to your family
+    if entry.family_id != user.family_id:
+        return jsonify({"error": "Forbidden"}), 403
+
+    name = request.form.get("name")
+    dosage = request.form.get("dosage")
+    schedule_raw = request.form.get("schedule")
+    days_raw = request.form.get("days")
+    instructions = request.form.get("instructions")
+
+    if name:
+        entry.name = name.strip()
+    if dosage is not None:
+        entry.dosage = dosage.strip() or None
+    if instructions is not None:
+        entry.instructions = instructions.strip() or None
+
+    if schedule_raw is not None:
+        try:
+            schedule = json.loads(schedule_raw)
+            entry.schedule_json = json.dumps(schedule)
+        except Exception:
+            pass
+
+    if days_raw is not None:
+        if days_raw.strip():
+            try:
+                entry.days = int(days_raw)
+            except (ValueError, TypeError):
+                entry.days = None
+        else:
+            entry.days = None
+
+    if "pack_image" in request.files:
+        upload_dir = current_app.config["UPLOAD_FOLDER"]
+        os.makedirs(upload_dir, exist_ok=True)
+        pack_file = request.files["pack_image"]
+        pack_filename = f"pack_{uuid.uuid4().hex}.jpg"
+        pack_filepath = os.path.join(upload_dir, pack_filename)
+        pack_img = Image.open(pack_file).convert("RGB")
+        pack_img.save(pack_filepath, "JPEG", quality=85)
+        entry.pack_image_url = f"/uploads/{pack_filename}"
+
+    db.session.commit()
+    return jsonify({"message": "Medicine updated", "medicine": entry.to_dict()})
+
+
 @medicine_bp.route("/uploads/<filename>")
 def serve_upload(filename):
     """Serve uploaded images."""
