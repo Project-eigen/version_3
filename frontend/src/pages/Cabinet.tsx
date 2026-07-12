@@ -185,7 +185,7 @@ export default function Cabinet() {
       if (membersRes.status === 'fulfilled') setMembers(membersRes.value.data.members || [])
       if (inboxRes.status === 'fulfilled') setInboxCount(inboxRes.value.data.requests?.length ?? 0)
       if (settingsRes.status === 'fulfilled') {
-        setCustomTimes(settingsRes.value.data.settings?.times || {})
+        setCustomTimes(settingsRes.value.data.times || {})
       }
     }
     init()

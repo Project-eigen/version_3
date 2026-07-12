@@ -91,13 +91,11 @@ function AppRoutes() {
         // 3. Fetch latest active medicines and configurations
         const [settingsRes, medicineRes] = await Promise.all([
           api.get('/notifications/settings'),
-          api.get('/medicine')
+          api.get('/medicine/cabinet')
         ])
 
-        const slots = ['morning', 'afternoon', 'evening', 'night'].filter(
-          s => settingsRes.data.settings?.[s]
-        )
-        const times = settingsRes.data.settings?.times || {}
+        const slots = settingsRes.data.slots || []
+        const times = settingsRes.data.times || {}
         const medicines = medicineRes.data.medicines || []
 
         // 4. Send the data to the Service Worker
