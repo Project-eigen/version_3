@@ -22,6 +22,7 @@ interface EditableMedicine {
   instructions: string
   packImage: string | null
   packFile: File | null
+  confidence?: 'high' | 'medium' | 'low' | null
 }
 
 export default function ScanApproval() {
@@ -64,6 +65,7 @@ export default function ScanApproval() {
         instructions: m.instructions || '',
         packImage: null,
         packFile: null,
+        confidence: (m as any).confidence || null,
       }))
     } else if (singleExtracted && (singleExtracted.name || singleExtracted.dosage)) {
       return [
@@ -76,6 +78,7 @@ export default function ScanApproval() {
           instructions: (singleExtracted as any).instructions || '',
           packImage: null,
           packFile: null,
+          confidence: (singleExtracted as any).confidence || null,
         },
       ]
     }
@@ -317,7 +320,14 @@ export default function ScanApproval() {
               <div className="med-approval-card" key={med.id}>
                 {/* Card Header */}
                 <div className="med-card-header">
-                  <span className="med-card-index">Medicine #{idx + 1}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span className="med-card-index">Medicine #{idx + 1}</span>
+                    {med.confidence && (
+                      <span className={`confidence-badge ${med.confidence}`}>
+                        {med.confidence === 'high' ? '🟢 Certain' : med.confidence === 'medium' ? '🟡 Review' : '🔴 Ambiguous'}
+                      </span>
+                    )}
+                  </div>
                   <button
                     className="delete-card-btn"
                     onClick={() => deleteMedicine(idx)}

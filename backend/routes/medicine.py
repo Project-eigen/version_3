@@ -23,6 +23,7 @@ For each medicine found, extract ALL of the following fields:
 - "schedule": list of time slots when the medicine is taken. Use ONLY these values: "morning", "afternoon", "evening", "night". Infer from columns labelled Mrng/Morning, Noon/Afternoon, Evng/Evening, Night/Bedtime. If a cell has a number, a tick, or any mark, that slot is active.
 - "days": integer number of days the medicine is prescribed for (from the Days column or text like "for 5 days"). Return null if not found.
 - "instructions": administration instructions exactly as written (e.g. "After Food", "Before Breakfast", "S/C", "At Bed Time", "With Water"). Return null if not found.
+- "confidence": estimate of OCR certainty based on handwriting legibility/clarity. Use ONLY "high" (for clear printed text/well-written print), "medium" (for average cursive/regular handwriting), or "low" (for scribbles, smudges, or highly ambiguous notes).
 
 For handwritten prescriptions:
 - Read the medicine name even if abbreviated (e.g. "Pan D" = "Pan-D", "PCM" = "Paracetamol").
@@ -37,7 +38,8 @@ Return ONLY a valid JSON object with this exact structure, no markdown, no expla
       "dosage": "1",
       "schedule": ["morning", "night"],
       "days": 5,
-      "instructions": "After Food"
+      "instructions": "After Food",
+      "confidence": "high"
     }
   ]
 }

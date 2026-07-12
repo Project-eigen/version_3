@@ -1,7 +1,7 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { Users, ScanLine, Archive } from 'lucide-react'
+import { Users, ScanLine, Archive, Plus, Pencil } from 'lucide-react'
 import Header from './Header'
 import FamilyPills from './FamilyPills'
 import type { User } from '../types'
@@ -26,6 +26,7 @@ export default function AppLayout({
   const navigate = useNavigate()
   const location = useLocation()
   const { user } = useAuth()
+  const [showAddMenu, setShowAddMenu] = useState(false)
 
   const currentTab: NavTab =
     location.pathname.startsWith('/cabinet') ? 'cabinet'
@@ -60,14 +61,15 @@ export default function AppLayout({
           <span>Family</span>
         </button>
 
-        {/* Center Scan Button */}
+        {/* Center Add Button */}
         <button
           id="nav-scan"
           className="scan-nav-btn"
-          onClick={() => navigate('/scan')}
-          aria-label="Scan medicine"
+          onClick={() => setShowAddMenu(true)}
+          aria-label="Add medicine options"
+          type="button"
         >
-          <ScanLine size={26} color="white" strokeWidth={2.5} />
+          <Plus size={28} color="white" strokeWidth={2.5} />
         </button>
 
         {/* Cabinet Tab */}
@@ -81,6 +83,60 @@ export default function AppLayout({
           <span>Cabinet</span>
         </button>
       </nav>
+
+      {/* Bottom Action Drawer Sheet */}
+      {showAddMenu && (
+        <div className="bottom-sheet-overlay" onClick={() => setShowAddMenu(false)}>
+          <div className="bottom-sheet-content" onClick={(e) => e.stopPropagation()}>
+            <div className="bottom-sheet-drag-handle" />
+            <h3 className="bottom-sheet-title">Add Medicine</h3>
+            <div className="bottom-sheet-options">
+              <button
+                className="bottom-sheet-option"
+                onClick={() => {
+                  setShowAddMenu(false)
+                  navigate('/scan')
+                }}
+                type="button"
+              >
+                <div className="option-icon scan">
+                  <ScanLine size={22} color="var(--accent-teal)" />
+                </div>
+                <div className="option-text">
+                  <span className="option-title">Scan Prescription</span>
+                  <span className="option-desc">Extract medicine details automatically with Gemini AI</span>
+                </div>
+              </button>
+
+              <button
+                className="bottom-sheet-option"
+                onClick={() => {
+                  setShowAddMenu(false)
+                  navigate('/scan/approve', {
+                    state: {
+                      scanData: { extracted: { medicines: [] } },
+                      capturedImage: null
+                    }
+                  })
+                }}
+                type="button"
+              >
+                <div className="option-icon manual">
+                  <Pencil size={22} color="var(--accent-cyan)" />
+                </div>
+                <div className="option-text">
+                  <span className="option-title">Type Manually</span>
+                  <span className="option-desc">Manually enter names, schedules, and dosages</span>
+                </div>
+              </button>
+            </div>
+            
+            <button className="bottom-sheet-cancel" onClick={() => setShowAddMenu(false)} type="button">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </>
   )
 }
