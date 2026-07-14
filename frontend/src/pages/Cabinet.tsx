@@ -86,7 +86,7 @@ function MedicineCard({ med, slot, onLog, onImageClick, onDelete, onEdit }: MedC
             {med.scan_image_url && (
               <button
                 className="view-rx-badge"
-                onClick={() => onImageClick(med.scan_image_url)}
+                onClick={() => onImageClick(med.scan_image_url || '')}
                 title="View original prescription reference"
                 type="button"
               >
@@ -383,13 +383,7 @@ interface EditMedicineModalProps {
 function EditMedicineModal({ med, onClose, onSave }: EditMedicineModalProps) {
   const [name, setName] = useState(med.name)
   const [dosage, setDosage] = useState(med.dosage || '')
-  const [schedule, setSchedule] = useState<TimeSlot[]>(() => {
-    try {
-      return JSON.parse(med.schedule_json || '[]')
-    } catch {
-      return []
-    }
-  })
+  const [schedule, setSchedule] = useState<TimeSlot[]>(med.schedule || [])
   const [days, setDays] = useState(med.days != null ? String(med.days) : '')
   const [instructions, setInstructions] = useState(med.instructions || '')
   const [packImagePreview, setPackImagePreview] = useState<string | null>(med.pack_image_url)

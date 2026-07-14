@@ -38,6 +38,7 @@ export default function ScanApproval() {
         schedule?: TimeSlot[]
         days?: number | null
         instructions?: string | null
+        unparsed_lines?: string[]
         medicines?: Array<{
           name: string | null
           dosage: string | null

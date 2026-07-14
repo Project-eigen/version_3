@@ -147,6 +147,7 @@ def _check_user(user, now_utc: datetime, db) -> None:
                 )
                 if result == "expired":
                     db.session.delete(sub)
+                    db.session.commit()
                 elif result is True:
                     push_ok = True
 

@@ -165,7 +165,7 @@ export default function NotificationSettings() {
       try {
         sub = await sw.pushManager.subscribe({
           userVisibleOnly: true,
-          applicationServerKey: await urlBase64ToUint8Array(vapidKey),
+          applicationServerKey: (await urlBase64ToUint8Array(vapidKey)) as any,
         })
       } catch (subErr: any) {
         // Detect Brave — it blocks pushManager.subscribe() when Shields are up

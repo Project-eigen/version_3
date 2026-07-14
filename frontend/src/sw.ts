@@ -57,7 +57,7 @@ registerRoute(
 // Fired by the browser periodically (interval set during page registration).
 // Tries to fetch fresh cabinet data. If the app is open, the NetworkFirst
 // strategy will serve the latest. If offline/unauth'd, it's a silent no-op.
-self.addEventListener('periodicsync', (event) => {
+self.addEventListener('periodicsync', (event: any) => {
   if (event.tag === 'medicine-check') {
     event.waitUntil(
       fetch(new Request('/api/notifications/settings', { mode: 'same-origin' }))
@@ -146,7 +146,7 @@ function scheduleTriggerNotification(title: string, options: { body: string, tag
         tag: options.tag,
         showTrigger: trigger,
         data: options.data,
-      })
+      } as any)
       console.log(`[SW] Scheduled offline notification: ${options.tag} at ${new Date(options.timestamp).toLocaleString()}`)
     } catch (err) {
       console.error('[SW] Failed to schedule trigger notification:', err)
@@ -158,7 +158,7 @@ function scheduleTriggerNotification(title: string, options: { body: string, tag
 
 function scheduleFutureLocalNotifications(slots: string[], times: Record<string, string>, medicines: any[]) {
   // Clear any existing fallback notifications first
-  self.registration.getNotifications({ includeTriggered: true })
+  self.registration.getNotifications({ includeTriggered: true } as any)
     .then((notifications) => {
       for (const notif of notifications) {
         if (notif.tag && notif.tag.startsWith('fallback-')) {
@@ -249,7 +249,7 @@ self.addEventListener('push', (event) => {
       if (dateStr && slot) {
         const fallbackTag = `fallback-${dateStr}-${slot}`
         event.waitUntil(
-          self.registration.getNotifications({ includeTriggered: true })
+          self.registration.getNotifications({ includeTriggered: true } as any)
             .then((notifications) => {
               for (const notif of notifications) {
                 if (notif.tag === fallbackTag) {
@@ -272,7 +272,7 @@ self.addEventListener('push', (event) => {
       data: payload.data ?? {},
       tag: 'medicine-reminder',
       renotify: true,
-    })
+    } as any)
   )
 })
 
