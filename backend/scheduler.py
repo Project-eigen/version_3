@@ -13,7 +13,7 @@ Key design decisions:
 """
 import json
 import logging
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, time
 
 log = logging.getLogger(__name__)
 
@@ -98,8 +98,9 @@ def _check_user(user, now_utc: datetime, db) -> None:
         else:
             h, m = DEFAULT_SLOT_TIMES[slot]
 
-        # Does the current local minute match this slot?
-        if user_local.hour != h or user_local.minute != m:
+        # Has the slot time passed for today, and is it within a 2-hour catch-up window?
+        slot_time = datetime.combine(today, time(h, m))
+        if user_local < slot_time or user_local > slot_time + timedelta(hours=2):
             continue
 
         # Idempotency check — have we already sent for this slot today?

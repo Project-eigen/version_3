@@ -76,8 +76,8 @@ def create_app():
     # we are in the child process. Render also sets RENDER=true automatically.
     werkzeug_main = os.environ.get("WERKZEUG_RUN_MAIN")
     if not app.debug or werkzeug_main == "true" or os.environ.get("RENDER") == "true":
-        from scheduler import init_scheduler
-        init_scheduler(app)
+        # Internal scheduler disabled - triggered via external webhook /api/notifications/trigger-check
+        pass
 
         # Automatically register Telegram webhook on startup
         token = app.config.get("TELEGRAM_BOT_TOKEN", "")
