@@ -73,11 +73,24 @@ def scan_medicine():
     if max(img.size) > max_size:
         img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
 
-    # Encode to Base64
+    # Save processed image to buffered bytes
     buffered = io.BytesIO()
     img.save(buffered, format="JPEG", quality=75)
-    img_base64_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
-    scan_image_url = f"data:image/jpeg;base64,{img_base64_str}"
+
+    # Upload to Cloudinary
+    import cloudinary
+    import cloudinary.uploader
+    try:
+        upload_result = cloudinary.uploader.upload(
+            buffered.getvalue(),
+            folder="dawaisathi"
+        )
+        scan_image_url = upload_result.get("secure_url")
+    except Exception as e:
+        current_app.logger.error(f"Cloudinary upload error: {e}")
+        # fallback to local temp data URL if Cloudinary fails
+        img_base64_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
+        scan_image_url = f"data:image/jpeg;base64,{img_base64_str}"
 
     # Call Gemini API
     try:
@@ -166,8 +179,19 @@ def add_medicine():
         
         buffered = io.BytesIO()
         pack_img.save(buffered, format="JPEG", quality=75)
-        pack_img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
-        pack_image_url = f"data:image/jpeg;base64,{pack_img_base64}"
+        
+        import cloudinary
+        import cloudinary.uploader
+        try:
+            upload_result = cloudinary.uploader.upload(
+                buffered.getvalue(),
+                folder="dawaisathi"
+            )
+            pack_image_url = upload_result.get("secure_url")
+        except Exception as e:
+            current_app.logger.error(f"Cloudinary upload error: {e}")
+            pack_img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+            pack_image_url = f"data:image/jpeg;base64,{pack_img_base64}"
 
     entry = MedicineEntry(
         user_id=target_user_id,
@@ -351,8 +375,19 @@ def update_medicine(entry_id):
         
         buffered = io.BytesIO()
         pack_img.save(buffered, format="JPEG", quality=75)
-        pack_img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
-        entry.pack_image_url = f"data:image/jpeg;base64,{pack_img_base64}"
+        
+        import cloudinary
+        import cloudinary.uploader
+        try:
+            upload_result = cloudinary.uploader.upload(
+                buffered.getvalue(),
+                folder="dawaisathi"
+            )
+            entry.pack_image_url = upload_result.get("secure_url")
+        except Exception as e:
+            current_app.logger.error(f"Cloudinary upload error: {e}")
+            pack_img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+            entry.pack_image_url = f"data:image/jpeg;base64,{pack_img_base64}"
 
     db.session.commit()
     return jsonify({"message": "Medicine updated", "medicine": entry.to_dict()})
@@ -363,3 +398,100 @@ def serve_upload(filename):
     """Serve uploaded images."""
     upload_dir = current_app.config["UPLOAD_FOLDER"]
     return send_from_directory(upload_dir, filename)
+
+
+@medicine_bp.route("/api/medicine/upload-image", methods=["POST"])
+def upload_image():
+    """Upload any image to Cloudinary and return the secure URL."""
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    if "image" not in request.files:
+        return jsonify({"error": "No image provided"}), 400
+
+    image_file = request.files["image"]
+    image_bytes = image_file.read()
+
+    # Downscale using Pillow first to save bandwidth/storage
+    img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    max_size = 1000
+    if max(img.size) > max_size:
+        img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+
+    buffered = io.BytesIO()
+    img.save(buffered, format="JPEG", quality=75)
+
+    import cloudinary
+    import cloudinary.uploader
+    try:
+        upload_result = cloudinary.uploader.upload(
+            buffered.getvalue(),
+            folder="dawaisathi"
+        )
+        return jsonify({"url": upload_result.get("secure_url")})
+    except Exception as e:
+        current_app.logger.error(f"Cloudinary upload error: {e}")
+        return jsonify({"error": "Failed to upload image to CDN"}), 500
+
+
+@medicine_bp.route("/api/medicine/batch-add", methods=["POST"])
+def batch_add_medicines():
+    """Add multiple medicine entries to the cabinet in a single batch."""
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json() or {}
+    medicines_data = data.get("medicines", [])
+    scan_image_url = data.get("scan_image_url", "")
+    target_user_id = data.get("target_user_id", user.id)
+
+    if not medicines_data:
+        return jsonify({"error": "No medicines provided"}), 400
+
+    # Security check: Ensure target user belongs to the same family
+    if target_user_id != user.id:
+        target = User.query.get(target_user_id)
+        if not target or target.family_id != user.family_id:
+            return jsonify({"error": "Forbidden - Target user is not in your family"}), 403
+
+    added_entries = []
+    for med in medicines_data:
+        name = med.get("name")
+        if not name:
+            continue
+
+        dosage = med.get("dosage")
+        schedule = med.get("schedule", [])
+        days_raw = med.get("days")
+        instructions = med.get("instructions")
+        pack_image_url = med.get("pack_image_url")
+
+        days = None
+        if days_raw is not None and str(days_raw).strip():
+            try:
+                days = int(days_raw)
+            except (ValueError, TypeError):
+                days = None
+
+        entry = MedicineEntry(
+            user_id=target_user_id,
+            family_id=user.family_id,
+            name=name.strip(),
+            dosage=dosage.strip() if dosage else None,
+            schedule_json=json.dumps(schedule),
+            days=days,
+            instructions=instructions.strip() if instructions else None,
+            scan_image_url=scan_image_url,
+            pack_image_url=pack_image_url,
+        )
+        db.session.add(entry)
+        added_entries.append(entry)
+
+    db.session.commit()
+
+    return jsonify({
+        "message": f"Added {len(added_entries)} medicines successfully",
+        "medicines": [e.to_dict() for e in added_entries]
+    }), 201

@@ -238,32 +238,38 @@ export default function ScanApproval() {
 
     setLoading(true)
     try {
-      for (let i = 0; i < medicines.length; i++) {
-        const med = medicines[i]
-        setCurrentUploadIdx(i)
-
-        const formData = new FormData()
-        formData.append('name', med.name.trim())
-        if (med.dosage.trim()) formData.append('dosage', med.dosage.trim())
-        formData.append('schedule', JSON.stringify(med.schedule))
-        formData.append('target_user_id', String(targetMemberId))
-        if (med.days.trim()) formData.append('days', med.days.trim())
-        if (med.instructions.trim()) formData.append('instructions', med.instructions.trim())
-
-        // Set overall scanned doc image as reference if they didn't capture a custom one
-        if (state?.scanData?.scan_image_url) {
-          formData.append('scan_image_url', state.scanData.scan_image_url)
-        }
-
-        // Custom pack photo
-        if (med.packFile) {
-          formData.append('pack_image', med.packFile)
-        }
-
-        await api.post('/medicine/add', formData, {
-          headers: { 'Content-Type': 'multipart/form-data' },
+      // 1. Upload custom pack images in parallel if they exist
+      const medicinesWithUrls = await Promise.all(
+        medicines.map(async (med, idx) => {
+          setCurrentUploadIdx(idx)
+          let pack_image_url = med.packImage
+          if (med.packFile) {
+            const formData = new FormData()
+            formData.append('image', med.packFile)
+            const uploadRes = await api.post('/medicine/upload-image', formData, {
+              headers: { 'Content-Type': 'multipart/form-data' },
+            })
+            pack_image_url = uploadRes.data.url
+          }
+          return {
+            name: med.name.trim(),
+            dosage: med.dosage.trim(),
+            schedule: med.schedule,
+            days: med.days.trim(),
+            instructions: med.instructions.trim(),
+            pack_image_url,
+          }
         })
-      }
+      )
+
+      setCurrentUploadIdx(null)
+
+      // 2. Save all medicines in a single batch call
+      await api.post('/medicine/batch-add', {
+        medicines: medicinesWithUrls,
+        scan_image_url: state?.scanData?.scan_image_url || '',
+        target_user_id: targetMemberId,
+      })
 
       showToast(`Added ${medicines.length} medicines successfully!`, 'success')
       setTimeout(() => navigate('/cabinet', { replace: true }), 1200)

@@ -25,6 +25,7 @@ class Config:
 
     UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), "uploads")
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16 MB max upload
+    CLOUDINARY_URL = os.environ.get("CLOUDINARY_URL", "")
 
     # ── Telegram Bot ────────────────────────────────────────────────────────────
     TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
