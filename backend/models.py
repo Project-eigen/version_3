@@ -11,6 +11,10 @@ class Family(db.Model):
     family_code = db.Column(db.String(6), unique=True, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+    __table_args__ = (
+        db.Index('idx_family_code', 'family_code'),
+    )
+
     # Relationships
     members = db.relationship("User", backref="family", lazy=True)
     join_requests = db.relationship("FamilyJoinRequest", backref="family", lazy=True)
@@ -36,9 +40,16 @@ class User(db.Model):
     family_id = db.Column(db.Integer, db.ForeignKey("families.id"), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+    __table_args__ = (
+        db.Index('idx_user_family_id', 'family_id'),
+        db.Index('idx_user_telegram_chat_id', 'telegram_chat_id'),
+    )
+
     # ── Notification fields ────────────────────────────────────────────────────
     # Browser's getTimezoneOffset() value (e.g. -330 for IST). UTC = Local + offset.
     timezone_offset = db.Column(db.Integer, default=0)
+    # User selected timezone name (e.g., "Asia/Kolkata")
+    timezone_name = db.Column(db.String(64), nullable=True)
     # Telegram chat ID once the bot is linked
     telegram_chat_id = db.Column(db.String(64), nullable=True)
     # Full browser PushSubscription JSON (endpoint + keys)
@@ -62,6 +73,7 @@ class User(db.Model):
             "family_id": self.family_id,
             "telegram_linked": self.telegram_chat_id is not None,
             "push_enabled": self.push_subscriptions.count() > 0,
+            "timezone_name": self.timezone_name,
         }
 
 
@@ -70,10 +82,15 @@ class PushSubscription(db.Model):
     __tablename__ = "push_subscriptions"
 
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     endpoint = db.Column(db.Text, nullable=False)
     subscription_json = db.Column(db.Text, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.Index('idx_push_sub_user_id', 'user_id'),
+        db.Index('idx_push_sub_endpoint', 'endpoint'),
+    )
 
 
 class FamilyJoinRequest(db.Model):
@@ -87,6 +104,12 @@ class FamilyJoinRequest(db.Model):
     )  # pending | accepted | rejected
     responder_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.Index('idx_fjr_requester_id', 'requester_id'),
+        db.Index('idx_fjr_family_id', 'family_id'),
+        db.Index('idx_fjr_status', 'status'),
+    )
 
     requester = db.relationship("User", foreign_keys=[requester_id])
     responder = db.relationship("User", foreign_keys=[responder_id])
@@ -116,17 +139,26 @@ class MedicineEntry(db.Model):
     pack_image_url = db.Column(db.Text)  # image of the physical pack
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+    __table_args__ = (
+        db.Index('idx_medicine_user_id', 'user_id'),
+        db.Index('idx_medicine_family_id', 'family_id'),
+    )
+
     logs = db.relationship("MedicineLog", backref="medicine", lazy=True)
 
     @property
     def schedule(self):
-        if self.schedule_json:
-            return json.loads(self.schedule_json)
-        return []
+        if not hasattr(self, '_schedule_cache'):
+            if self.schedule_json:
+                self._schedule_cache = json.loads(self.schedule_json)
+            else:
+                self._schedule_cache = []
+        return self._schedule_cache
 
     @schedule.setter
     def schedule(self, value):
         self.schedule_json = json.dumps(value)
+        self._schedule_cache = value
 
     def to_dict(self):
         return {
@@ -152,6 +184,11 @@ class MedicineLog(db.Model):
     logged_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     time_slot = db.Column(db.String(16))  # morning | afternoon | evening | night
     logged_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.Index('idx_med_log_entry_id', 'entry_id'),
+        db.Index('idx_med_log_logged_at', 'logged_at'),
+    )
 
     def to_dict(self):
         return {
@@ -193,5 +230,6 @@ class NotificationLog(db.Model):
 
     __table_args__ = (
         db.UniqueConstraint("user_id", "date", "time_slot", name="uq_notif_user_date_slot"),
+        db.Index('idx_notif_lookup', 'user_id', 'date', 'time_slot'),
     )
 

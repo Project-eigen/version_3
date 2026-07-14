@@ -33,6 +33,20 @@ def create_app():
     # Create DB tables & uploads folder
     with app.app_context():
         db.create_all()
+        
+        # Self-healing check: Dynamically add timezone_name column to users table if missing
+        try:
+            from sqlalchemy import inspect
+            inspector = inspect(db.engine)
+            columns = [col["name"] for col in inspector.get_columns("users")]
+            if "timezone_name" not in columns:
+                db.session.execute(db.text("ALTER TABLE users ADD COLUMN timezone_name VARCHAR(64);"))
+                db.session.commit()
+                app.logger.info("Successfully added missing timezone_name column to users table.")
+        except Exception as e:
+            db.session.rollback()
+            app.logger.error(f"Error checking/adding timezone_name column: {e}")
+
         os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 
         # Migrate old push subscriptions to the new table (if not already there)

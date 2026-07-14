@@ -4,15 +4,17 @@ from models import User, Family, FamilyJoinRequest
 from routes.auth import get_current_user
 import random
 import string
+from sqlalchemy.exc import IntegrityError
 
 family_bp = Blueprint("family", __name__)
 
 
 def generate_family_code():
-    while True:
+    for _ in range(10):
         code = "".join(random.choices(string.digits, k=6))
         if not Family.query.filter_by(family_code=code).first():
             return code
+    raise RuntimeError("Could not generate unique family code")
 
 
 @family_bp.route("/api/family/members", methods=["GET"])
@@ -27,7 +29,7 @@ def get_members():
     family = Family.query.get(user.family_id)
     members = User.query.filter_by(family_id=user.family_id).all()
     return jsonify({
-        "family": family.to_dict(),
+        "family": family.to_dict() if family else None,
         "members": [m.to_dict() for m in members],
     })
 
@@ -44,12 +46,19 @@ def create_family():
     data = request.get_json()
     family_name = data.get("name", f"{user.name}'s Family")
 
-    family = Family(
-        name=family_name,
-        family_code=generate_family_code(),
-    )
-    db.session.add(family)
-    db.session.flush()  # get ID
+    for _ in range(10):
+        family = Family(
+            name=family_name,
+            family_code=generate_family_code(),
+        )
+        db.session.add(family)
+        try:
+            db.session.flush()
+            break
+        except IntegrityError:
+            db.session.rollback()
+    else:
+        return jsonify({"error": "Could not generate unique family code"}), 500
 
     user.family_id = family.id
     db.session.commit()
@@ -130,7 +139,7 @@ def respond_to_request():
     if action not in ("accept", "reject"):
         return jsonify({"error": "action must be 'accept' or 'reject'"}), 400
 
-    join_req = FamilyJoinRequest.query.get(request_id)
+    join_req = FamilyJoinRequest.query.with_for_update().get(request_id)
     if not join_req:
         return jsonify({"error": "Request not found"}), 404
     if join_req.family_id != user.family_id:
@@ -143,6 +152,8 @@ def respond_to_request():
 
     if action == "accept":
         requester = User.query.get(join_req.requester_id)
+        if not requester:
+            return jsonify({"error": "Requester user no longer exists"}), 404
         requester.family_id = join_req.family_id
 
     db.session.commit()
@@ -160,6 +171,10 @@ def leave_family():
     if not user:
         return jsonify({"error": "Unauthorized"}), 401
     from models import MedicineEntry
+    FamilyJoinRequest.query.filter(
+        (FamilyJoinRequest.requester_id == user.id) |
+        (FamilyJoinRequest.responder_id == user.id)
+    ).filter_by(status="pending").delete(synchronize_session=False)
     user.family_id = None
     # Detach all of this user's medicine entries from the old family
     MedicineEntry.query.filter_by(user_id=user.id).update({"family_id": None})

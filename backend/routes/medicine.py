@@ -1,6 +1,5 @@
 import os
 import json
-import base64
 from datetime import datetime, date
 from flask import Blueprint, request, jsonify, send_from_directory, current_app
 from extensions import db
@@ -88,9 +87,12 @@ def scan_medicine():
         scan_image_url = upload_result.get("secure_url")
     except Exception as e:
         current_app.logger.error(f"Cloudinary upload error: {e}")
-        # fallback to local temp data URL if Cloudinary fails
-        img_base64_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
-        scan_image_url = f"data:image/jpeg;base64,{img_base64_str}"
+        # fallback to local filesystem if Cloudinary fails
+        filename = f"scan_{uuid.uuid4().hex}.jpg"
+        filepath = os.path.join(current_app.config["UPLOAD_FOLDER"], filename)
+        with open(filepath, "wb") as f:
+            f.write(buffered.getvalue())
+        scan_image_url = f"/uploads/{filename}"
 
     # Call Gemini API
     try:
@@ -190,8 +192,11 @@ def add_medicine():
             pack_image_url = upload_result.get("secure_url")
         except Exception as e:
             current_app.logger.error(f"Cloudinary upload error: {e}")
-            pack_img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
-            pack_image_url = f"data:image/jpeg;base64,{pack_img_base64}"
+            filename = f"pack_{uuid.uuid4().hex}.jpg"
+            filepath = os.path.join(current_app.config["UPLOAD_FOLDER"], filename)
+            with open(filepath, "wb") as f:
+                f.write(buffered.getvalue())
+            pack_image_url = f"/uploads/{filename}"
 
     entry = MedicineEntry(
         user_id=target_user_id,
@@ -322,9 +327,13 @@ def delete_medicine(entry_id):
             return jsonify({"error": "Forbidden"}), 403
 
     # Delete all associated logs first
-    MedicineLog.query.filter_by(entry_id=entry_id).delete()
+    MedicineLog.query.filter_by(entry_id=entry_id).delete(synchronize_session=False)
     db.session.delete(entry)
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return jsonify({"error": "Failed to delete medicine"}), 500
 
     return jsonify({"message": "Medicine permanently deleted"})
 
@@ -394,8 +403,11 @@ def update_medicine(entry_id):
             entry.pack_image_url = upload_result.get("secure_url")
         except Exception as e:
             current_app.logger.error(f"Cloudinary upload error: {e}")
-            pack_img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
-            entry.pack_image_url = f"data:image/jpeg;base64,{pack_img_base64}"
+            filename = f"pack_{uuid.uuid4().hex}.jpg"
+            filepath = os.path.join(current_app.config["UPLOAD_FOLDER"], filename)
+            with open(filepath, "wb") as f:
+                f.write(buffered.getvalue())
+            entry.pack_image_url = f"/uploads/{filename}"
 
     db.session.commit()
     return jsonify({"message": "Medicine updated", "medicine": entry.to_dict()})

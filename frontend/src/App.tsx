@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useEffect } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import api from './api/client'
@@ -9,11 +9,10 @@ import api from './api/client'
 const AuthGate      = lazy(() => import('./pages/AuthGate'))
 const AuthSuccess   = lazy(() => import('./pages/AuthSuccess'))
 const FamilySettings = lazy(() => import('./pages/FamilySettings'))
+const SettingsDashboard = lazy(() => import('./pages/SettingsDashboard'))
 const Cabinet       = lazy(() => import('./pages/Cabinet'))
 const Scanner       = lazy(() => import('./pages/Scanner'))
 const ScanApproval  = lazy(() => import('./pages/ScanApproval'))
-const FamilyInbox   = lazy(() => import('./pages/FamilyInbox'))
-const NotificationSettings = lazy(() => import('./pages/NotificationSettings'))
 
 // Minimal full-screen spinner shown while a lazy chunk is being downloaded.
 // Matches the dark background so there's no flash of white (prevents CLS).
@@ -90,7 +89,7 @@ function AppRoutes() {
 
         // 3. Cabinet double-fetching removed on mount (now synchronized in Cabinet.tsx)
       } catch (err) {
-        console.error('[App] Notification sync failed:', err)
+        if (import.meta.env.DEV) console.error('[App] Notification sync failed:', err)
       }
     }
 
@@ -109,11 +108,10 @@ function AppRoutes() {
 
           {/* Protected */}
           <Route path="/home"        element={<ProtectedRoute><FamilySettings /></ProtectedRoute>} />
+          <Route path="/settings"    element={<ProtectedRoute><SettingsDashboard /></ProtectedRoute>} />
           <Route path="/cabinet"     element={<ProtectedRoute><Cabinet /></ProtectedRoute>} />
           <Route path="/scan"        element={<ProtectedRoute><Scanner /></ProtectedRoute>} />
           <Route path="/scan/approve" element={<ProtectedRoute><ScanApproval /></ProtectedRoute>} />
-          <Route path="/inbox"       element={<ProtectedRoute><FamilyInbox /></ProtectedRoute>} />
-          <Route path="/notifications" element={<ProtectedRoute><NotificationSettings /></ProtectedRoute>} />
 
           {/* Fallback */}
           <Route path="*" element={<Navigate to="/" replace />} />

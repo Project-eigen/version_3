@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '../context/AuthContext'
 import AppLayout from '../components/AppLayout'
 import api from '../api/client'
@@ -8,7 +8,7 @@ import { Users, UserPlus, Mail } from 'lucide-react'
 export default function FamilySettings() {
   const { user, refreshUser, activeMemberId, setActiveMemberId } = useAuth()
   const [members, setMembers] = useState<User[]>([])
-  const [inboxCount, setInboxCount] = useState(0)
+  const [requests, setRequests] = useState<any[]>([])
   const [showJoinModal, setShowJoinModal] = useState(false)
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [joinEmail, setJoinEmail] = useState('')
@@ -17,6 +17,7 @@ export default function FamilySettings() {
   const [errorMsg, setErrorMsg] = useState('')
   const [hasPendingRequest, setHasPendingRequest] = useState(false)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
+  const [processingReqId, setProcessingReqId] = useState<number | null>(null)
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type })
@@ -30,9 +31,35 @@ export default function FamilySettings() {
         api.get('/family/inbox')
       ])
       setMembers(membersRes.data.members || [])
-      setInboxCount(inboxRes.data.requests?.length ?? 0)
+      setRequests(inboxRes.data.requests || [])
     } catch {}
   }, [])
+
+  const handleAccept = async (reqId: number) => {
+    setProcessingReqId(reqId)
+    try {
+      await api.post('/family/respond', { request_id: reqId, action: 'accept' })
+      showToast('✓ Request accepted!', 'success')
+      fetchFamilyData()
+    } catch {
+      showToast('Failed to accept request', 'error')
+    } finally {
+      setProcessingReqId(null)
+    }
+  }
+
+  const handleReject = async (reqId: number) => {
+    setProcessingReqId(reqId)
+    try {
+      await api.post('/family/respond', { request_id: reqId, action: 'reject' })
+      showToast('✓ Request rejected!', 'success')
+      fetchFamilyData()
+    } catch {
+      showToast('Failed to reject request', 'error')
+    } finally {
+      setProcessingReqId(null)
+    }
+  }
 
   useEffect(() => {
     fetchFamilyData()
@@ -83,7 +110,6 @@ export default function FamilySettings() {
         familyMembers={myMembers}
         activeMemberId={activeMemberId}
         onSelectMember={handleSelectMember}
-        inboxCount={inboxCount}
       >
         {!inFamily ? (
           /* NO FAMILY STATE */
@@ -144,6 +170,71 @@ export default function FamilySettings() {
         ) : (
           /* IN FAMILY — show members */
           <div className="page-content">
+            {/* PENDING APPROVALS INBOX SECTION */}
+            {requests.length > 0 && (
+              <div style={{ padding: '16px 16px 8px' }}>
+                <h2 style={{
+                  fontSize: '0.8rem', fontWeight: 700, color: 'var(--accent-teal)',
+                  textTransform: 'uppercase', letterSpacing: '0.08em', display: 'flex',
+                  alignItems: 'center', gap: 6, marginBottom: 12
+                }}>
+                  <Mail size={14} /> Pending Approval ({requests.length})
+                </h2>
+                {requests.map((req) => (
+                  <div
+                    key={req.id}
+                    style={{
+                      background: 'rgba(13, 148, 136, 0.04)',
+                      border: '1px solid rgba(13, 148, 136, 0.15)',
+                      padding: '12px 14px',
+                      borderRadius: 14,
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      marginBottom: 8
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                        {req.user_name || req.email}
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+                        {req.email}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button
+                        onClick={() => handleAccept(req.id)}
+                        disabled={processingReqId === req.id}
+                        style={{
+                          width: 28, height: 28, borderRadius: 6, background: 'var(--accent-teal)',
+                          border: 'none', color: '#090e1a', display: 'flex', alignItems: 'center',
+                          justifyContent: 'center', cursor: processingReqId === req.id ? 'not-allowed' : 'pointer',
+                          fontWeight: 'bold', opacity: processingReqId === req.id ? 0.5 : 1
+                        }}
+                      >
+                        {processingReqId === req.id ? <span className="loading-spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> : '✓'}
+                      </button>
+                      <button
+                        onClick={() => handleReject(req.id)}
+                        disabled={processingReqId === req.id}
+                        style={{
+                          width: 28, height: 28, borderRadius: 6, background: 'rgba(239, 68, 68, 0.1)',
+                          border: '1px solid rgba(239, 68, 68, 0.2)', color: '#ef4444',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          cursor: processingReqId === req.id ? 'not-allowed' : 'pointer',
+                          fontWeight: 'bold', opacity: processingReqId === req.id ? 0.5 : 1
+                        }}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                <div style={{ height: 1, background: 'var(--bg-dark-card-border)', margin: '16px 0' }} />
+              </div>
+            )}
+
             <div style={{ padding: '16px 16px 8px' }}>
               <h2 style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                 Family Members

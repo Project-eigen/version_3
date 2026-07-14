@@ -1,15 +1,8 @@
-import React from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useAuth } from '../context/AuthContext'
-import { Pill, Inbox, Bell, LogOut } from 'lucide-react'
+import { Pill, Settings } from 'lucide-react'
 
-interface HeaderProps {
-  inboxCount?: number
-}
-
-export default function Header({ inboxCount = 0 }: HeaderProps) {
+export default function Header() {
   const navigate = useNavigate()
-  const { logout } = useAuth()
 
   return (
     <header className="app-header" role="banner">
@@ -32,42 +25,19 @@ export default function Header({ inboxCount = 0 }: HeaderProps) {
         <span className="brand-text">DawaiSathi</span>
       </div>
 
-      {/* Actions */}
+      {/* Header Actions - Settings Cog */}
       <div className="header-actions">
-        {/* Inbox */}
         <button
+          onClick={() => navigate('/settings')}
           className="icon-btn"
-          onClick={() => navigate('/inbox')}
-          aria-label={`Inbox${inboxCount > 0 ? ` (${inboxCount} pending)` : ''}`}
-          id="header-inbox-btn"
-          type="button"
+          aria-label="Open settings dashboard"
+          style={{
+            width: 36, height: 36, display: 'flex', alignItems: 'center',
+            justifyContent: 'center', borderRadius: 8, background: 'transparent',
+            border: 'none', color: 'var(--text-secondary)', cursor: 'pointer'
+          }}
         >
-          <Inbox size={18} />
-          {inboxCount > 0 && <span className="badge" />}
-        </button>
-
-        {/* Notifications */}
-        <button
-          className="icon-btn"
-          onClick={() => navigate('/notifications')}
-          aria-label="Notification settings"
-          id="header-notifications-btn"
-          title="Notification settings"
-          type="button"
-        >
-          <Bell size={18} />
-        </button>
-
-        {/* Logout */}
-        <button
-          className="icon-btn"
-          onClick={logout}
-          aria-label="Logout"
-          id="header-logout-btn"
-          title="Logout"
-          type="button"
-        >
-          <LogOut size={18} />
+          <Settings size={20} />
         </button>
       </div>
     </header>

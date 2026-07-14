@@ -44,18 +44,26 @@ def send_due_notifications() -> None:
 
     now_utc = datetime.utcnow()
 
+    # Pre-fetch family memberships to avoid N+1 queries later
+    family_members: dict[int, list[int]] = {}
+    rows = db.session.query(User.family_id, User.id).filter(
+        User.family_id.isnot(None)
+    ).all()
+    for fam_id, uid in rows:
+        family_members.setdefault(fam_id, []).append(uid)
+
     # Only query users who have at least one channel configured
     has_push = db.session.query(PushSubscription.user_id).distinct().subquery()
-    users = User.query.filter(
+    query = User.query.filter(
         db.or_(
             User.telegram_chat_id.isnot(None),
             User.id.in_(db.session.query(has_push.c.user_id)),
         )
-    ).all()
+    )
 
-    for user in users:
+    for user in query.yield_per(100):
         try:
-            _check_user(user, now_utc, db)
+            _check_user(user, now_utc, db, family_members)
         except Exception as exc:
             # Per-user errors must not break the whole job
             log.exception("Notification error for user %s: %s", user.id, exc)
@@ -63,14 +71,22 @@ def send_due_notifications() -> None:
 
 # ── Per-user logic ────────────────────────────────────────────────────────────
 
-def _check_user(user, now_utc: datetime, db) -> None:
+def _check_user(user, now_utc: datetime, db, family_members: dict[int, list[int]]) -> None:
     from models import NotificationLog
     from notification_helpers import send_telegram_message, send_push_notification
 
-    # Convert UTC → user's local time
-    # Browser's getTimezoneOffset(): UTC = Local + offset  →  Local = UTC − offset
-    tz_offset = user.timezone_offset or 0
-    user_local: datetime = now_utc - timedelta(minutes=tz_offset)
+    if user.timezone_name:
+        try:
+            from zoneinfo import ZoneInfo
+            from datetime import timezone
+            user_local = now_utc.replace(tzinfo=timezone.utc).astimezone(ZoneInfo(user.timezone_name))
+        except Exception as exc:
+            log.warning("Timezone conversion failed for user %s: %s", user.id, exc)
+            tz_offset = user.timezone_offset or 0
+            user_local = now_utc - timedelta(minutes=tz_offset)
+    else:
+        tz_offset = user.timezone_offset or 0
+        user_local = now_utc - timedelta(minutes=tz_offset)
     today: date = user_local.date()
 
     enabled_slots: list[str] = (
@@ -111,7 +127,8 @@ def _check_user(user, now_utc: datetime, db) -> None:
             continue
 
         # Gather medicines due for this slot (respecting days field)
-        medicines = _get_due_medicines(user.id, slot, today)
+        target_ids = family_members.get(user.family_id, [user.id]) if user.family_id else [user.id]
+        medicines = _get_due_medicines(target_ids, slot, today)
         if not medicines:
             continue
 
@@ -173,22 +190,9 @@ def _check_user(user, now_utc: datetime, db) -> None:
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _get_due_medicines(user_id: int, slot: str, today: date) -> list:
-    """Return all active medicines for a user+family+slot, filtering by days field."""
-    from models import MedicineEntry, User
-
-    user = User.query.get(user_id)
-    if not user:
-        return []
-
-    # Include the user's family members so a parent gets reminded about
-    # medicines added for a child (or any other family member).
-    if user.family_id:
-        target_ids = [
-            m.id for m in User.query.filter_by(family_id=user.family_id).all()
-        ]
-    else:
-        target_ids = [user_id]
+def _get_due_medicines(target_ids: list[int], slot: str, today: date) -> list:
+    """Return all active medicines for a set of users + slot, filtering by days field."""
+    from models import MedicineEntry
 
     medicines = MedicineEntry.query.filter(
         MedicineEntry.user_id.in_(target_ids)

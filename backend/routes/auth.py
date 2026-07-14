@@ -19,10 +19,10 @@ def generate_family_code():
     return "".join(random.choices(string.digits, k=6))
 
 
-def create_jwt(user_id: int) -> str:
+def create_jwt(user_id: int, expires_in_hours: int = 720) -> str:
     payload = {
         "user_id": user_id,
-        "exp": datetime.utcnow() + timedelta(days=30),
+        "exp": datetime.utcnow() + timedelta(hours=expires_in_hours),
         "iat": datetime.utcnow(),
     }
     return jwt.encode(payload, current_app.config["SECRET_KEY"], algorithm="HS256")
@@ -92,7 +92,7 @@ def google_callback():
     info = userinfo_resp.json()
     google_id = info["sub"]
     name = info.get("name", "")
-    email = info.get("email", "")
+    email = info.get("email", "").lower()
     avatar_url = info.get("picture", "")
 
     # Find or create user
@@ -127,3 +127,57 @@ def me():
 def logout():
     """Client-side logout — just tell client to discard token."""
     return jsonify({"message": "Logged out"})
+
+
+@auth_bp.route("/api/auth/guest-login", methods=["POST"])
+def guest_login():
+    # Clean up old guest accounts to prevent DB bloat
+    try:
+        from models import MedicineEntry, MedicineLog, PushSubscription, FamilyJoinRequest
+        threshold = datetime.utcnow() - timedelta(hours=4)
+
+        # Query old guest users
+        old_guests = User.query.filter(
+            User.google_id.like("guest_%"),
+            User.created_at < threshold
+        ).all()
+        old_guest_ids = [u.id for u in old_guests]
+
+        if old_guest_ids:
+            # Delete related data first
+            PushSubscription.query.filter(PushSubscription.user_id.in_(old_guest_ids)).delete(synchronize_session=False)
+            MedicineLog.query.filter(MedicineLog.user_id.in_(old_guest_ids)).delete(synchronize_session=False)
+            MedicineEntry.query.filter(MedicineEntry.user_id.in_(old_guest_ids)).delete(synchronize_session=False)
+            FamilyJoinRequest.query.filter(
+                (FamilyJoinRequest.requester_id.in_(old_guest_ids)) |
+                (FamilyJoinRequest.responder_id.in_(old_guest_ids))
+            ).delete(synchronize_session=False)
+
+            # Delete the guest users
+            User.query.filter(User.id.in_(old_guest_ids)).delete(synchronize_session=False)
+            db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error cleaning up old guests: {e}")
+
+    # Generate a random guest identity
+    import uuid
+    guest_id = f"guest_{uuid.uuid4().hex[:8]}"
+    email = f"{guest_id}@dawaisathi.com"
+    name = f"Guest User ({guest_id[6:].upper()})"
+
+    user = User(
+        google_id=guest_id,
+        name=name,
+        email=email,
+        avatar_url="",
+    )
+    db.session.add(user)
+    db.session.commit()
+
+    # Short 2-hour token for guests to prevent long-term session misuse
+    token = create_jwt(user.id, expires_in_hours=2)
+    return jsonify({
+        "token": token,
+        "user": user.to_dict()
+    })

@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { Users, ScanLine, Archive, Plus, Pencil } from 'lucide-react'
@@ -11,7 +11,6 @@ interface LayoutProps {
   familyMembers: User[]
   activeMemberId: number
   onSelectMember: (id: number) => void
-  inboxCount?: number
 }
 
 type NavTab = 'family' | 'cabinet' | 'scan'
@@ -21,7 +20,6 @@ export default function AppLayout({
   familyMembers,
   activeMemberId,
   onSelectMember,
-  inboxCount = 0,
 }: LayoutProps) {
   const navigate = useNavigate()
   const location = useLocation()
@@ -35,7 +33,7 @@ export default function AppLayout({
 
   return (
     <>
-      <Header inboxCount={inboxCount} />
+      <Header />
       <FamilyPills
         members={familyMembers}
         activeMemberId={activeMemberId}
@@ -55,7 +53,7 @@ export default function AppLayout({
           id="nav-family"
           className={`nav-item ${currentTab === 'family' ? 'active' : ''}`}
           onClick={() => navigate('/home')}
-          aria-label="Family Settings"
+          aria-label="Family"
         >
           <Users size={20} />
           <span>Family</span>

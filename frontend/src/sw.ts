@@ -147,12 +147,12 @@ function scheduleTriggerNotification(title: string, options: { body: string, tag
         showTrigger: trigger,
         data: options.data,
       } as any)
-      console.log(`[SW] Scheduled offline notification: ${options.tag} at ${new Date(options.timestamp).toLocaleString()}`)
+      if (import.meta.env.DEV) console.log(`[SW] Scheduled offline notification: ${options.tag} at ${new Date(options.timestamp).toLocaleString()}`)
     } catch (err) {
-      console.error('[SW] Failed to schedule trigger notification:', err)
+      if (import.meta.env.DEV) console.error('[SW] Failed to schedule trigger notification:', err)
     }
   } else {
-    console.log('[SW] Notification triggers not supported/active on this device.')
+    if (import.meta.env.DEV) console.log('[SW] Notification triggers not supported/active on this device.')
   }
 }
 
@@ -166,7 +166,7 @@ function scheduleFutureLocalNotifications(slots: string[], times: Record<string,
         }
       }
     })
-    .catch((err) => console.error('[SW] Error clearing existing triggers:', err))
+    .catch((err) => { if (import.meta.env.DEV) console.error('[SW] Error clearing existing triggers:', err) })
 
   const now = new Date()
   // Loop for the next 3 days
@@ -254,11 +254,11 @@ self.addEventListener('push', (event) => {
               for (const notif of notifications) {
                 if (notif.tag === fallbackTag) {
                   notif.close()
-                  console.log(`[SW] Cancelled offline trigger: ${fallbackTag} because online push arrived.`)
+                  if (import.meta.env.DEV) console.log(`[SW] Cancelled offline trigger: ${fallbackTag} because online push arrived.`)
                 }
               }
             })
-            .catch((err) => console.error('[SW] Error cancelling trigger:', err))
+            .catch((err) => { if (import.meta.env.DEV) console.error('[SW] Error cancelling trigger:', err) })
         )
       }
     } catch {}
@@ -293,8 +293,8 @@ self.addEventListener('notificationclick', (event) => {
     }
     event.waitUntil(
       setLog(logItem)
-        .then(() => console.log('[SW] Logged offline trigger click:', logItem))
-        .catch(err => console.error('[SW] Error logging offline trigger:', err))
+        .then(() => { if (import.meta.env.DEV) console.log('[SW] Logged offline trigger click:', logItem) })
+        .catch(err => { if (import.meta.env.DEV) console.error('[SW] Error logging offline trigger:', err) })
     )
   }
 

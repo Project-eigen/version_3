@@ -75,6 +75,7 @@ def get_settings():
         ],
         "slots": slots,
         "times": times,
+        "timezone_name": user.timezone_name,
     })
 
 
@@ -103,6 +104,24 @@ def update_settings():
                 pass
         user.notif_times_json = json.dumps(times)
 
+    if "timezone_name" in data:
+        tz_name = str(data["timezone_name"]).strip()
+        if len(tz_name) <= 64:
+            user.timezone_name = tz_name
+            # Compute and save matching minute offset for backward compatibility
+            try:
+                from zoneinfo import ZoneInfo
+                from datetime import datetime, timezone
+                tz_obj = ZoneInfo(tz_name)
+                # Compute offset for the current time using an aware datetime
+                aware_dt = datetime.now(timezone.utc).astimezone(tz_obj)
+                offset_sec = aware_dt.utcoffset().total_seconds()
+                user.timezone_offset = -int(offset_sec / 60)
+            except Exception as exc:
+                current_app.logger.warning(
+                    f"Failed to resolve timezone/offset '{tz_name}' for user {user.id}: {exc}"
+                )
+
     db.session.commit()
     return jsonify({"ok": True})
 
@@ -117,7 +136,7 @@ def get_telegram_code():
         return jsonify({"error": "Unauthorized"}), 401
 
     # Expire/remove old unused codes for this user
-    TelegramLinkCode.query.filter_by(user_id=user.id, used=False).delete()
+    TelegramLinkCode.query.filter_by(user_id=user.id, used=False).delete(synchronize_session=False)
     db.session.flush()
 
     # Generate a unique 6-digit code
@@ -319,7 +338,7 @@ def push_unsubscribe():
     if not endpoint:
         return jsonify({"error": "No endpoint provided — use subscribe endpoint instead"}), 400
 
-    deleted = PushSubscription.query.filter_by(user_id=user.id, endpoint=endpoint).delete()
+    deleted = PushSubscription.query.filter_by(user_id=user.id, endpoint=endpoint).delete(synchronize_session=False)
     db.session.commit()
     return jsonify({"ok": True, "deleted": deleted})
 
@@ -429,6 +448,10 @@ def set_telegram_webhook():
 @notifications_bp.route("/api/notifications/trigger-check", methods=["GET", "POST"])
 def trigger_check():
     """Webhook for external cron services (like cron-job.org) to trigger the notification run."""
+    secret = request.headers.get("X-Cron-Secret", "")
+    expected = current_app.config.get("CRON_SECRET", "")
+    if expected and secret != expected:
+        return jsonify({"error": "Forbidden"}), 403
     from scheduler import send_due_notifications
     try:
         send_due_notifications()

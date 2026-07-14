@@ -163,7 +163,6 @@ export default function Cabinet() {
   const { user, activeMemberId, setActiveMemberId } = useAuth()
   const [members, setMembers] = useState<User[]>([])
   const [medicines, setMedicines] = useState<MedicineEntry[]>([])
-  const [inboxCount, setInboxCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const [isFetching, setIsFetching] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
@@ -217,13 +216,11 @@ export default function Cabinet() {
   useEffect(() => {
     if (!user?.id) return
     const init = async () => {
-      const [membersRes, inboxRes, settingsRes] = await Promise.allSettled([
+      const [membersRes, settingsRes] = await Promise.allSettled([
         api.get('/family/members'),
-        api.get('/family/inbox'),
         api.get('/notifications/settings'),
       ])
       if (membersRes.status === 'fulfilled') setMembers(membersRes.value.data.members || [])
-      if (inboxRes.status === 'fulfilled') setInboxCount(inboxRes.value.data.requests?.length ?? 0)
       if (settingsRes.status === 'fulfilled') {
         setCustomTimes(settingsRes.value.data.times || {})
       }
@@ -278,7 +275,6 @@ export default function Cabinet() {
         familyMembers={members}
         activeMemberId={activeMemberId}
         onSelectMember={handleSelectMember}
-        inboxCount={inboxCount}
       >
         {loading ? (
           <div style={{ padding: '12px 12px 0' }}>
@@ -443,7 +439,7 @@ function EditMedicineModal({ med, onClose, onSave }: EditMedicineModalProps) {
         onSave(res.data.medicine)
       }
     } catch (err) {
-      console.error(err)
+      if (import.meta.env.DEV) console.error(err)
       alert('Failed to update medicine parameters.')
     } finally {
       setSaving(false)

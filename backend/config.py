@@ -38,3 +38,7 @@ class Config:
     VAPID_PRIVATE_KEY = os.environ.get("VAPID_PRIVATE_KEY", "")
     VAPID_PUBLIC_KEY = os.environ.get("VAPID_PUBLIC_KEY", "")
     VAPID_CLAIMS_EMAIL = os.environ.get("VAPID_CLAIMS_EMAIL", "admin@dawaisathi.com")
+
+    # ── Cron / Scheduler ────────────────────────────────────────────────────────
+    # Secret token for external cron services to call trigger-check
+    CRON_SECRET = os.environ.get("CRON_SECRET", "")
