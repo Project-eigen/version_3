@@ -44,6 +44,9 @@ def sync_timezone():
     except (TypeError, ValueError):
         offset = 0
     user.timezone_offset = offset
+    tz_name = data.get("tz_name")
+    if tz_name:
+        user.timezone_name = tz_name
     db.session.commit()
     return jsonify({"ok": True})
 

@@ -18,7 +18,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [activeMemberId, _setActiveMemberId] = useState<number>(() => {
     const saved = localStorage.getItem('activeMemberId')
-    return saved ? Number(saved) : 0
+    const n = Number(saved)
+    return n > 0 ? n : 0
   })
 
   const setActiveMemberId = (id: number) => {
@@ -27,10 +28,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const syncTimezone = () => {
-    // Fire-and-forget with retry so a transient backend blip doesn't leave
-    // the timezone at UTC and shift all reminder times for the user.
-    const attempt = () => {
-      api.post('/notifications/timezone', { tz_offset: new Date().getTimezoneOffset() })
+    const tzName = Intl.DateTimeFormat().resolvedOptions().timeZone || ''
+    const attempt = (): any => {
+      api.post('/notifications/timezone', { tz_offset: new Date().getTimezoneOffset(), tz_name: tzName })
         .catch(() => new Promise((r) => setTimeout(r, 5000)).then(attempt))
     }
     attempt()
@@ -68,8 +68,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (user?.id) {
       const saved = localStorage.getItem('activeMemberId')
-      if (saved) {
-        _setActiveMemberId(Number(saved))
+      const n = Number(saved)
+      if (n > 0 && (n === user.id || user.family_id)) {
+        _setActiveMemberId(n)
       } else {
         setActiveMemberId(user.id)
       }
@@ -79,6 +80,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = async () => {
     try { await api.post('/auth/logout') } catch {}
     localStorage.removeItem('token')
+    localStorage.removeItem('activeMemberId')
     setUser(null)
   }
 

@@ -2,14 +2,13 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useAuth } from '../context/AuthContext'
 import AppLayout from '../components/AppLayout'
 import api from '../api/client'
-import type { User } from '../types'
 import {
   Bell, RefreshCw, LogOut, ChevronDown, ChevronUp, Info
 } from 'lucide-react'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type TimeSlotKey = 'morning' | 'afternoon' | 'evening' | 'night'
-type SectionKey = 'profile' | 'alerts' | 'family'
+type SectionKey = 'profile' | 'alerts'
 
 interface PushDevice {
   endpoint: string
@@ -34,16 +33,21 @@ const ALL_SLOTS: { key: TimeSlotKey; label: string; emoji: string }[] = [
   { key: 'night',     label: 'Night',     emoji: '🌙' },
 ]
 
-const TIMEZONES = [
-  { value: 'Asia/Kolkata', label: 'Asia/Kolkata (IST - GMT+5:30)' },
-  { value: 'UTC', label: 'Coordinated Universal Time (UTC - GMT+0:00)' },
-  { value: 'Europe/London', label: 'Europe/London (GMT/BST - GMT+1:00)' },
-  { value: 'America/New_York', label: 'America/New_York (EST/EDT - GMT-5:00)' },
-  { value: 'Asia/Dubai', label: 'Asia/Dubai (GST - GMT+4:00)' },
-  { value: 'Asia/Singapore', label: 'Asia/Singapore (SGT - GMT+8:00)' },
-  { value: 'Australia/Sydney', label: 'Australia/Sydney (AEST/AEDT - GMT+10:00)' },
-  { value: 'America/Los_Angeles', label: 'America/Los_Angeles (PST/PDT - GMT-8:00)' },
-]
+function buildTimezoneOptions(): { value: string; label: string }[] {
+  const now = new Date()
+  try {
+    const names: string[] = Intl.supportedValuesOf('timeZone')
+    return names.map((tz) => {
+      const formatter = new Intl.DateTimeFormat('en', { timeZone: tz, timeZoneName: 'shortOffset' })
+      const offset = formatter.formatToParts(now).find((p) => p.type === 'timeZoneName')?.value || ''
+      return { value: tz, label: `${tz} (${offset})` }
+    })
+  } catch {
+    return [{ value: 'UTC', label: 'UTC (GMT+0:00)' }]
+  }
+}
+
+const TIMEZONES = buildTimezoneOptions()
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 async function urlBase64ToUint8Array(base64String: string): Promise<Uint8Array> {
@@ -54,7 +58,7 @@ async function urlBase64ToUint8Array(base64String: string): Promise<Uint8Array> 
 }
 
 export default function SettingsDashboard() {
-  const { user, logout, activeMemberId, setActiveMemberId } = useAuth()
+  const { user, logout, activeMemberId } = useAuth()
 
   // Unified loading and fetch status
   const [loading, setLoading] = useState(true)
@@ -64,7 +68,6 @@ export default function SettingsDashboard() {
   const [openSections, setOpenSections] = useState<Record<SectionKey, boolean>>({
     profile: true,
     alerts: false,
-    family: false,
   })
 
   // 1. Notification & Timezone State
@@ -76,7 +79,7 @@ export default function SettingsDashboard() {
 
   // Timezone dynamic clock preview
   const [selectedTz, setSelectedTz] = useState('Asia/Kolkata')
-  const [timezoneOptions, setTimezoneOptions] = useState(TIMEZONES)
+  const timezoneOptions = TIMEZONES
   const [tzPreviewTime, setTzPreviewTime] = useState('')
 
   // Telegram states
@@ -96,9 +99,6 @@ export default function SettingsDashboard() {
   const [activeSlots, setActiveSlots] = useState<TimeSlotKey[]>([])
   const [settingsDirty, setSettingsDirty] = useState(false)
   const [settingsSaving, setSettingsSaving] = useState(false)
-
-  // 2. Family State
-  const [members, setMembers] = useState<User[]>([])
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type })
@@ -134,27 +134,15 @@ export default function SettingsDashboard() {
         ? `/notifications/settings?endpoint=${encodeURIComponent(currentEndpoint)}`
         : '/notifications/settings'
 
-      const [settingsRes, membersRes] = await Promise.all([
-        api.get(url),
-        api.get('/family/members'),
-      ])
-
+      const settingsRes = await api.get(url)
       const sData = settingsRes.data
       setSettings(sData)
       setEditTimes(sData.times || { morning: '08:00', afternoon: '13:00', evening: '18:00', night: '22:00' })
       setActiveSlots(sData.slots || [])
-      const tz = sData.timezone_name || Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Kolkata'
-      setSelectedTz(tz)
-      if (!TIMEZONES.some(option => option.value === tz)) {
-        setTimezoneOptions(prev => [
-          ...prev,
-          { value: tz, label: `${tz} (Local Time)` }
-        ])
-      }
+      setSelectedTz(sData.timezone_name || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')
 
-      setMembers(membersRes.data.members || [])
     } catch (err) {
-      if (import.meta.env.DEV) console.error('[Dashboard] Failed to fetch settings/family:', err)
+      if (import.meta.env.DEV) console.error('[Dashboard] Failed to fetch settings:', err)
     } finally {
       setLoading(false)
     }
@@ -354,20 +342,9 @@ export default function SettingsDashboard() {
     }
   }
 
-  const handleSelectMember = (id: number) => {
-    setActiveMemberId(id)
-  }
-
-  const inFamily = !!user?.family_id
-  const myMembers = inFamily ? members : []
-
   return (
     <>
-      <AppLayout
-        familyMembers={myMembers}
-        activeMemberId={activeMemberId}
-        onSelectMember={handleSelectMember}
-      >
+      <AppLayout familyMembers={[]} activeMemberId={activeMemberId} onSelectMember={() => {}}>
         {loading ? (
           <div className="loading-overlay">
             <div className="loading-spinner" />

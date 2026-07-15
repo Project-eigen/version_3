@@ -17,7 +17,7 @@ interface MedCardProps {
   slot: TimeSlot
   onLog: (entryId: number, slot: TimeSlot) => Promise<void>
   onImageClick: (url: string) => void
-  onDelete: (entryId: number) => Promise<void>
+  onDelete: (entryId: number, slot: TimeSlot) => Promise<void>
   onEdit: (med: MedicineEntry) => void
 }
 
@@ -119,11 +119,7 @@ function MedicineCard({ med, slot, onLog, onImageClick, onDelete, onEdit }: MedC
 
           <button
             className="action-btn-circle delete"
-            onClick={() => {
-              if (confirm(`Are you sure you want to permanently delete ${med.name} from the cabinet?`)) {
-                onDelete(med.id)
-              }
-            }}
+            onClick={() => onDelete(med.id, slot)}
             aria-label="Delete medicine"
             type="button"
           >
@@ -206,7 +202,10 @@ export default function Cabinet() {
           })
         }).catch(() => {})
       }
-    } catch {} finally {
+    } catch (e) {
+      if (import.meta.env.DEV) console.error('[Cabinet] fetch error:', e)
+      showToast('Failed to load cabinet')
+    } finally {
       setLoading(false)
       setIsFetching(false)
     }
@@ -250,13 +249,32 @@ export default function Cabinet() {
     }
   }
 
-  const handleDeleteMed = async (entryId: number) => {
-    try {
-      await api.delete(`/medicine/delete/${entryId}`)
-      showToast('✓ Medicine deleted permanently')
-      setMedicines((prev) => prev.filter((m) => m.id !== entryId))
-    } catch {
-      showToast('Failed to delete medicine')
+  const handleDeleteMed = async (entryId: number, slot: TimeSlot) => {
+    const med = medicines.find((m) => m.id === entryId)
+    if (!med) return
+    const updatedSchedule = med.schedule.filter((s) => s !== slot)
+    if (updatedSchedule.length === 0) {
+      try {
+        await api.delete(`/medicine/delete/${entryId}`)
+        showToast('✓ Medicine deleted permanently')
+        setMedicines((prev) => prev.filter((m) => m.id !== entryId))
+      } catch {
+        showToast('Failed to delete medicine')
+      }
+    } else {
+      try {
+        const formData = new FormData()
+        formData.append('schedule', JSON.stringify(updatedSchedule))
+        const res = await api.post(`/medicine/update/${entryId}`, formData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        })
+        if (res.data.medicine) {
+          setMedicines((prev) => prev.map((m) => (m.id === entryId ? res.data.medicine : m)))
+          showToast(`✓ Removed ${slot} schedule`)
+        }
+      } catch {
+        showToast('Failed to remove schedule')
+      }
     }
   }
 

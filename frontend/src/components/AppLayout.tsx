@@ -34,12 +34,14 @@ export default function AppLayout({
   return (
     <>
       <Header />
-      <FamilyPills
-        members={familyMembers}
-        activeMemberId={activeMemberId}
-        onSelect={onSelectMember}
-        currentUserId={user?.id ?? 0}
-      />
+      {currentTab === 'cabinet' && (
+        <FamilyPills
+          members={familyMembers}
+          activeMemberId={activeMemberId}
+          onSelect={onSelectMember}
+          currentUserId={user?.id ?? 0}
+        />
+      )}
 
       {/* Page content */}
       <div className="page-content">
