@@ -5,6 +5,7 @@ import { registerRoute } from 'workbox-routing'
 import { NetworkFirst, CacheFirst, StaleWhileRevalidate } from 'workbox-strategies'
 import { ExpirationPlugin } from 'workbox-expiration'
 import { CacheableResponsePlugin } from 'workbox-cacheable-response'
+import { clientsClaim } from 'workbox-core'
 
 declare const self: ServiceWorkerGlobalScope
 
@@ -12,27 +13,28 @@ declare const self: ServiceWorkerGlobalScope
 // self.__WB_MANIFEST is injected by vite-plugin-pwa at build time
 precacheAndRoute(self.__WB_MANIFEST)
 cleanupOutdatedCaches()
+clientsClaim()
 
-// ── Runtime caching: API calls (NetworkFirst, 24h) ────────────────────────────
+// ── Runtime caching: API calls (NetworkFirst, 5 min) ─────────────────────────
 registerRoute(
   ({ url }) => url.pathname.startsWith('/api/'),
   new NetworkFirst({
     cacheName: 'api-cache',
-    networkTimeoutSeconds: 8,
+    networkTimeoutSeconds: 5,
     plugins: [
-      new ExpirationPlugin({ maxEntries: 300, maxAgeSeconds: 86400 }),
+      new ExpirationPlugin({ maxEntries: 300, maxAgeSeconds: 300 }),
       new CacheableResponsePlugin({ statuses: [0, 200] }),
     ],
   })
 )
 
-// ── Runtime caching: Medicine/prescription images (CacheFirst, 30 days) ───────
+// ── Runtime caching: Medicine/prescription images (StaleWhileRevalidate, 7d) ─
 registerRoute(
   ({ url }) => url.pathname.startsWith('/uploads/'),
-  new CacheFirst({
+  new StaleWhileRevalidate({
     cacheName: 'image-cache',
     plugins: [
-      new ExpirationPlugin({ maxEntries: 200, maxAgeSeconds: 2592000 }),
+      new ExpirationPlugin({ maxEntries: 200, maxAgeSeconds: 604800 }),
       new CacheableResponsePlugin({ statuses: [0, 200] }),
     ],
   })
@@ -112,7 +114,7 @@ const DEFAULT_SLOT_TIMES: Record<string, string> = {
   morning: '08:00',
   afternoon: '13:00',
   evening: '18:00',
-  night: '21:00',
+  night: '22:00',
 }
 
 function getDueMedicinesForSlot(medicines: any[], slot: string, dayOffset: number): any[] {
@@ -210,6 +212,9 @@ function scheduleFutureLocalNotifications(slots: string[], times: Record<string,
 
 // ── Message handler for receiving active schedule ────────────────────────────
 self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting()
+  }
   if (event.data && event.data.type === 'SYNC_SCHEDULES') {
     const { slots, times, medicines } = event.data.payload
     event.waitUntil(
@@ -249,7 +254,7 @@ self.addEventListener('push', (event) => {
       if (dateStr && slot) {
         const fallbackTag = `fallback-${dateStr}-${slot}`
         event.waitUntil(
-          self.registration.getNotifications({ includeTriggered: true } as any)
+  self.registration.getNotifications()
             .then((notifications) => {
               for (const notif of notifications) {
                 if (notif.tag === fallbackTag) {

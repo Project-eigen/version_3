@@ -14,7 +14,7 @@ import requests
 from datetime import datetime, timedelta
 
 from flask import Blueprint, request, jsonify, current_app
-from extensions import db
+from extensions import db, safe_commit
 from models import User, TelegramLinkCode, PushSubscription
 from routes.auth import get_current_user
 
@@ -47,7 +47,7 @@ def sync_timezone():
     tz_name = data.get("tz_name")
     if tz_name:
         user.timezone_name = tz_name
-    db.session.commit()
+    safe_commit()
     return jsonify({"ok": True})
 
 
@@ -103,8 +103,8 @@ def update_settings():
                 h, m = map(int, str(val).split(":"))
                 if 0 <= h <= 23 and 0 <= m <= 59:
                     times[slot] = f"{h:02d}:{m:02d}"
-            except Exception:
-                pass
+            except Exception as e:
+                current_app.logger.warning(f"Invalid custom time '{val}' for slot {slot} (user {user.id}): {e}")
         user.notif_times_json = json.dumps(times)
 
     if "timezone_name" in data:
@@ -125,7 +125,7 @@ def update_settings():
                     f"Failed to resolve timezone/offset '{tz_name}' for user {user.id}: {exc}"
                 )
 
-    db.session.commit()
+    safe_commit()
     return jsonify({"ok": True})
 
 
@@ -154,7 +154,7 @@ def get_telegram_code():
         expires_at=datetime.utcnow() + timedelta(minutes=10),
     )
     db.session.add(link)
-    db.session.commit()
+    safe_commit()
 
     # Try to resolve the bot's username for the deep link
     token = current_app.config.get("TELEGRAM_BOT_TOKEN", "")
@@ -166,8 +166,8 @@ def get_telegram_code():
             )
             if resp.ok:
                 bot_username = resp.json().get("result", {}).get("username", bot_username)
-        except Exception:
-            pass
+        except Exception as e:
+            current_app.logger.warning(f"Telegram getMe failed: {e}")
 
     return jsonify({
         "code": code,
@@ -191,7 +191,7 @@ def unlink_telegram():
     if not user:
         return jsonify({"error": "Unauthorized"}), 401
     user.telegram_chat_id = None
-    db.session.commit()
+    safe_commit()
     return jsonify({"ok": True})
 
 
@@ -225,8 +225,8 @@ def telegram_webhook():
                 json={"chat_id": chat_id, "text": msg, "parse_mode": "HTML"},
                 timeout=10,
             )
-        except Exception:
-            pass
+        except Exception as e:
+            current_app.logger.warning(f"Telegram reply failed for chat {chat_id}: {e}")
 
     # /start command
     if text == "/start":
@@ -251,7 +251,7 @@ def telegram_webhook():
 
         if datetime.utcnow() > link_code.expires_at:
             link_code.used = True
-            db.session.commit()
+            safe_commit()
             _reply("⏰ This code has expired. Please generate a fresh one from the app.")
             return jsonify({"ok": True})
 
@@ -260,7 +260,7 @@ def telegram_webhook():
         if target_user:
             target_user.telegram_chat_id = chat_id
             link_code.used = True
-            db.session.commit()
+            safe_commit()
             _reply(
                 f"✅ <b>Linked successfully!</b>\n\n"
                 f"Hi {target_user.name}! 👋\n"
@@ -276,7 +276,7 @@ def telegram_webhook():
         user_to_unlink = User.query.filter_by(telegram_chat_id=chat_id).first()
         if user_to_unlink:
             user_to_unlink.telegram_chat_id = None
-            db.session.commit()
+            safe_commit()
             _reply("✅ Unlinked. You won't receive reminders here anymore.\nSend /start to re-link.")
         else:
             _reply("You're not currently linked to any account.")
@@ -325,7 +325,7 @@ def push_subscribe():
             endpoint=endpoint,
             subscription_json=json.dumps(subscription),
         ))
-    db.session.commit()
+    safe_commit()
     return jsonify({"ok": True})
 
 
@@ -342,7 +342,7 @@ def push_unsubscribe():
         return jsonify({"error": "No endpoint provided — use subscribe endpoint instead"}), 400
 
     deleted = PushSubscription.query.filter_by(user_id=user.id, endpoint=endpoint).delete(synchronize_session=False)
-    db.session.commit()
+    safe_commit()
     return jsonify({"ok": True, "deleted": deleted})
 
 
@@ -392,7 +392,7 @@ def push_test():
     for sub in expired:
         db.session.delete(sub)
     if expired:
-        db.session.commit()
+        safe_commit()
 
     if all(r == "ok" for r in results):
         return jsonify({"ok": True})
@@ -504,7 +504,7 @@ def sync_notification_logs():
             log.error("Failed to parse/sync log item %s: %s", log_item, ex)
             
     if synced_count > 0:
-        db.session.commit()
+        safe_commit()
         
     seven_days_ago = date.today() - timedelta(days=7)
     recent_logs = NotificationLog.query.filter(

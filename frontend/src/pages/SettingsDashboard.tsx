@@ -143,6 +143,7 @@ export default function SettingsDashboard() {
 
     } catch (err) {
       if (import.meta.env.DEV) console.error('[Dashboard] Failed to fetch settings:', err)
+      showToast('Failed to load settings', 'error')
     } finally {
       setLoading(false)
     }
@@ -239,6 +240,7 @@ export default function SettingsDashboard() {
         }
       } catch {
         stopPolling()
+        showToast('Telegram link check failed', 'error')
       }
     }, 5000)
   }

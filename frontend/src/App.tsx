@@ -77,13 +77,17 @@ function AppRoutes() {
           const syncResp = await api.post('/notifications/sync', { logs: logsList })
           if (syncResp.data.ok) {
             const idsToClear = logsList.map(l => l.id)
-            await new Promise<void>((resolve, reject) => {
-              const tx = db.transaction('logs', 'readwrite')
-              const store = tx.objectStore('logs')
-              idsToClear.forEach(id => store.delete(id))
-              tx.oncomplete = () => resolve()
-              tx.onerror = (e: any) => reject(e.target.error)
-            })
+            try {
+              await new Promise<void>((resolve, reject) => {
+                const tx = db.transaction('logs', 'readwrite')
+                const store = tx.objectStore('logs')
+                idsToClear.forEach(id => store.delete(id))
+                tx.oncomplete = () => resolve()
+                tx.onerror = (e: any) => reject(e.target.error)
+              })
+            } catch (e) {
+              if (import.meta.env.DEV) console.error('[App] Failed to clear synced logs:', e)
+            }
           }
         }
 

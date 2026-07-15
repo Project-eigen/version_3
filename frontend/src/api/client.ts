@@ -34,7 +34,8 @@ export function getImageUrl(url: string | null | undefined): string {
   if (!url) return ''
   if (url.startsWith('/uploads/')) {
     const baseUrl = import.meta.env.VITE_API_URL || ''
-    return `${baseUrl}${url}`
+    const token = localStorage.getItem('token') || ''
+    return `${baseUrl}${url}?token=${encodeURIComponent(token)}`
   }
   return url
 }

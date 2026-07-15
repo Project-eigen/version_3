@@ -32,7 +32,10 @@ export default function FamilySettings() {
       ])
       setMembers(membersRes.data.members || [])
       setRequests(inboxRes.data.requests || [])
-    } catch {}
+    } catch (e) {
+      if (import.meta.env.DEV) console.error('[Family] fetch error:', e)
+      showToast('Failed to load family data', 'error')
+    }
   }, [])
 
   const handleAccept = async (reqId: number) => {
@@ -284,7 +287,10 @@ export default function FamilySettings() {
                     await api.post('/family/leave')
                     await refreshUser()
                     setMembers([])
-                  } catch {}
+                  } catch (e) {
+                    if (import.meta.env.DEV) console.error('[Family] leave error:', e)
+                    showToast('Failed to leave family', 'error')
+                  }
                 }}
                 id="leave-family-btn"
                 type="button"

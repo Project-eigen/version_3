@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify, current_app
-from extensions import db
+from extensions import db, safe_commit
 from models import User, Family, FamilyJoinRequest
 from routes.auth import get_current_user
 import random
@@ -61,7 +61,7 @@ def create_family():
         return jsonify({"error": "Could not generate unique family code"}), 500
 
     user.family_id = family.id
-    db.session.commit()
+    safe_commit()
 
     return jsonify({"family": family.to_dict(), "message": "Family created"}), 201
 
@@ -99,7 +99,7 @@ def send_join_request():
         family_id=target.family_id,
     )
     db.session.add(join_req)
-    db.session.commit()
+    safe_commit()
 
     return jsonify({
         "message": "Join request sent. Waiting for a family member to accept.",
@@ -156,7 +156,7 @@ def respond_to_request():
             return jsonify({"error": "Requester user no longer exists"}), 404
         requester.family_id = join_req.family_id
 
-    db.session.commit()
+    safe_commit()
 
     return jsonify({
         "message": f"Request {join_req.status}",
@@ -177,6 +177,6 @@ def leave_family():
     ).filter_by(status="pending").delete(synchronize_session=False)
     user.family_id = None
     # Detach all of this user's medicine entries from the old family
-    MedicineEntry.query.filter_by(user_id=user.id).update({"family_id": None})
-    db.session.commit()
+    MedicineEntry.query.filter_by(user_id=user.id).update({"family_id": None}, synchronize_session=False)
+    safe_commit()
     return jsonify({"message": "Left family"})

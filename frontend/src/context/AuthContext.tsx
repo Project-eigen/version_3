@@ -29,7 +29,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const syncTimezone = () => {
     const tzName = Intl.DateTimeFormat().resolvedOptions().timeZone || ''
+    let retries = 0
+    const maxRetries = 3
     const attempt = (): any => {
+      if (retries >= maxRetries) return
+      retries++
       api.post('/notifications/timezone', { tz_offset: new Date().getTimezoneOffset(), tz_name: tzName })
         .catch(() => new Promise((r) => setTimeout(r, 5000)).then(attempt))
     }
@@ -78,7 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [user])
 
   const logout = async () => {
-    try { await api.post('/auth/logout') } catch {}
+    try { await api.post('/auth/logout') } catch (e) { if (import.meta.env.DEV) console.warn('[Auth] Logout API call failed:', e) }
     localStorage.removeItem('token')
     localStorage.removeItem('activeMemberId')
     setUser(null)

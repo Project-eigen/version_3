@@ -188,6 +188,7 @@ class MedicineLog(db.Model):
     __table_args__ = (
         db.Index('idx_med_log_entry_id', 'entry_id'),
         db.Index('idx_med_log_logged_at', 'logged_at'),
+        db.Index('idx_med_log_user_id', 'logged_by_user_id'),
     )
 
     def to_dict(self):

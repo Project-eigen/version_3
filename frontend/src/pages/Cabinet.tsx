@@ -200,7 +200,7 @@ export default function Cabinet() {
               medicines: res.data.medicines || [],
             }
           })
-        }).catch(() => {})
+        }).catch((e) => { if (import.meta.env.DEV) console.warn('[Cabinet] SW sync failed:', e) })
       }
     } catch (e) {
       if (import.meta.env.DEV) console.error('[Cabinet] fetch error:', e)

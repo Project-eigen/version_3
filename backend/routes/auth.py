@@ -3,7 +3,7 @@ import jwt
 import requests
 from datetime import datetime, timedelta
 from flask import Blueprint, redirect, request, jsonify, current_app
-from extensions import db
+from extensions import db, safe_commit
 from models import User, Family
 import random
 import string
@@ -77,6 +77,7 @@ def google_callback():
     }
     token_resp = requests.post(GOOGLE_TOKEN_URL, data=token_data)
     if not token_resp.ok:
+        current_app.logger.error(f"Google OAuth token exchange failed: {token_resp.status_code} {token_resp.text[:200]}")
         return redirect(current_app.config["FRONTEND_URL"] + "/?error=token_failed")
 
     access_token = token_resp.json().get("access_token")
@@ -87,6 +88,7 @@ def google_callback():
         headers={"Authorization": f"Bearer {access_token}"},
     )
     if not userinfo_resp.ok:
+        current_app.logger.error(f"Google OAuth userinfo failed: {userinfo_resp.status_code} {userinfo_resp.text[:200]}")
         return redirect(current_app.config["FRONTEND_URL"] + "/?error=userinfo_failed")
 
     info = userinfo_resp.json()
@@ -107,7 +109,7 @@ def google_callback():
             avatar_url=avatar_url,
         )
         db.session.add(user)
-        db.session.commit()
+        safe_commit()
 
     token = create_jwt(user.id)
     frontend_url = current_app.config["FRONTEND_URL"]
@@ -126,6 +128,9 @@ def me():
 @auth_bp.route("/api/auth/logout", methods=["POST"])
 def logout():
     """Client-side logout — just tell client to discard token."""
+    user = get_current_user()
+    if user:
+        current_app.logger.info(f"User {user.id} logged out")
     return jsonify({"message": "Logged out"})
 
 
@@ -155,7 +160,7 @@ def guest_login():
 
             # Delete the guest users
             User.query.filter(User.id.in_(old_guest_ids)).delete(synchronize_session=False)
-            db.session.commit()
+            safe_commit()
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Error cleaning up old guests: {e}")
@@ -173,7 +178,7 @@ def guest_login():
         avatar_url="",
     )
     db.session.add(user)
-    db.session.commit()
+    safe_commit()
 
     # Short 2-hour token for guests to prevent long-term session misuse
     token = create_jwt(user.id, expires_in_hours=2)

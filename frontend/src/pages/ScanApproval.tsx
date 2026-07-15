@@ -119,7 +119,9 @@ export default function ScanApproval() {
       try {
         const res = await api.get('/family/members')
         setMembers(res.data.members || [])
-      } catch {}
+      } catch (e) {
+        if (import.meta.env.DEV) console.error('[ScanApproval] Failed to fetch members:', e)
+      }
     }
     fetchMembers()
   }, [])

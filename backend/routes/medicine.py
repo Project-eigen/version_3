@@ -2,9 +2,10 @@ import os
 import json
 from datetime import datetime, date
 from flask import Blueprint, request, jsonify, send_from_directory, current_app
-from extensions import db
+from extensions import db, safe_commit
 from models import User, MedicineEntry, MedicineLog
 from routes.auth import get_current_user
+import jwt
 import google.generativeai as genai
 from PIL import Image
 import io
@@ -12,25 +13,26 @@ import uuid
 
 medicine_bp = Blueprint("medicine", __name__)
 
-SCAN_PROMPT = """You are an expert Indian prescription and hospital discharge summary OCR agent.
+SCAN_PROMPT = """You are an expert Indian prescription OCR agent specialized for a daily medicine cabinet system.
 
-Your task: analyze the image and extract every medicine listed — whether from a printed hospital table, a typed prescription, or a handwritten chit.
+CRITICAL CONTEXT: Each extracted medicine will be assigned to a family member's cabinet with daily time slots (Morning 8AM, Afternoon 1PM, Evening 6PM, Night 10PM). The "days" field controls cabinet expiry — after the prescribed days elapse, the medicine stops appearing. Accuracy here directly affects patient safety.
 
 For each medicine found, extract ALL of the following fields:
 - "name": full medicine name including brand and strength (e.g. "Tab Cetil 500mg", "Cap Pantocid DSR 40mg"). Include the form (Tab / Cap / Inj / Syrup / Drops / Nebulization) in the name if visible.
-- "dosage": quantity per dose as written (e.g. "1", "2", "1/2", "2 drops", "10 units"). If timing-specific doses differ (e.g. 1 in morning and 1 at night), summarize as "1-0-1".
+- "dosage": quantity per single dose as written (e.g. "1", "2", "1/2", "2 drops", "10 units"). If timing-specific doses differ (e.g. 1 in morning and 2 at night), summarize as "1-0-2" (morning-afternoon-evening-night order).
 - "schedule": list of time slots when the medicine is taken. Use ONLY these values: "morning", "afternoon", "evening", "night". Infer from columns labelled Mrng/Morning, Noon/Afternoon, Evng/Evening, Night/Bedtime. If a cell has a number, a tick, or any mark, that slot is active.
-- "days": integer number of days the medicine is prescribed for (from the Days column or text like "for 5 days"). Return null if not found.
+- "days": integer number of days the medicine is prescribed for (from the Days column or text like "for 5 days"). CRITICAL for cabinet expiry. Return null if not found.
 - "instructions": administration instructions exactly as written (e.g. "After Food", "Before Breakfast", "S/C", "At Bed Time", "With Water"). Return null if not found.
-- "confidence": estimate of OCR certainty based on handwriting legibility/clarity. Use ONLY "high" (for clear printed text/well-written print), "medium" (for average cursive/regular handwriting), or "low" (for scribbles, smudges, or highly ambiguous notes).
+- "confidence": OCR certainty based on legibility: "high" (clear printed text or well-written print), "medium" (average cursive or regular handwriting), "low" (scribbles, smudges, highly ambiguous).
 
 Also, extract a list of "unparsed_lines":
-- "unparsed_lines": a list of strings containing any other text lines or handwritten scribbles on the prescription that look like drug names, dosage instructions, or other clinical notes but couldn't be fully structured or parsed into the medicines list. Return an empty list if none.
+- "unparsed_lines": a list of strings containing any other text lines or handwritten scribbles that look like drug names or clinical notes but couldn't be fully structured. Return an empty list if none.
 
 For handwritten prescriptions:
-- Read the medicine name even if abbreviated (e.g. "Pan D" = "Pan-D", "PCM" = "Paracetamol").
-- Infer schedule from notations like "1-0-1" (morning and night), "1-1-1" (morning, afternoon, night), "OD" (once daily = morning), "BD" (twice = morning + night), "TDS" (three times = morning, afternoon, night), "QDS" (four times = all slots).
+- Read the medicine name even if abbreviated (e.g. "Pan D" = "Pan-D", "PCM" = "Paracetamol", "MT" = "MVT").
+- Infer schedule from notations: "1-0-1" (morning+night), "1-1-1" (morning+afternoon+night), "OD" (once daily = morning), "BD" (twice = morning+night), "TDS" (three times = morning+afternoon+night), "QDS" (four times = all slots).
 - Look for handwritten numbers at the bottom or margins as additional medicines.
+- Days field is critical — look for "X days" or "for X days" text. If absent, look for date ranges.
 
 Return ONLY a valid JSON object with this exact structure, no markdown, no explanation:
 {
@@ -66,72 +68,81 @@ def scan_medicine():
     image_file = request.files["image"]
     image_bytes = image_file.read()
 
-    # Open image, convert to RGB, downscale to max 1000px, and convert to base64
-    img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    max_size = 1000
-    if max(img.size) > max_size:
-        img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+    if len(image_bytes) > current_app.config["MAX_CONTENT_LENGTH"]:
+        return jsonify({"error": "Image too large (max 16MB)", "code": "IMAGE_TOO_LARGE", "retryable": False}), 413
 
-    # Save processed image to buffered bytes
-    buffered = io.BytesIO()
-    img.save(buffered, format="JPEG", quality=75)
+    try:
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        max_size = 1000
+        if max(img.size) > max_size:
+            img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+        buffered = io.BytesIO()
+        img.save(buffered, format="JPEG", quality=75)
+    except Exception as e:
+        current_app.logger.error(f"Image processing error: {e}")
+        return jsonify({"error": "Failed to process image", "code": "IMAGE_PROCESS_ERROR", "retryable": False}), 422
 
-    # Upload to Cloudinary
     import cloudinary
     import cloudinary.uploader
     try:
-        upload_result = cloudinary.uploader.upload(
-            buffered.getvalue(),
-            folder="dawaisathi"
-        )
+        upload_result = cloudinary.uploader.upload(buffered.getvalue(), folder="dawaisathi")
         scan_image_url = upload_result.get("secure_url")
     except Exception as e:
         current_app.logger.error(f"Cloudinary upload error: {e}")
-        # fallback to local filesystem if Cloudinary fails
         filename = f"scan_{uuid.uuid4().hex}.jpg"
         filepath = os.path.join(current_app.config["UPLOAD_FOLDER"], filename)
         with open(filepath, "wb") as f:
             f.write(buffered.getvalue())
         scan_image_url = f"/uploads/{filename}"
 
-    # Call Gemini API
-    try:
-        api_key = current_app.config["GEMINI_API_KEY"]
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-2.5-flash")
+    api_key = current_app.config.get("GEMINI_API_KEY")
+    if not api_key:
+        return jsonify({"error": "Gemini API not configured on server", "code": "GEMINI_NOT_CONFIGURED", "retryable": False}), 500
 
-        response = model.generate_content([SCAN_PROMPT, img])
-        raw_text = response.text.strip()
+    import time
+    max_retries = 2
+    last_error = None
+    for attempt in range(max_retries):
+        try:
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel("gemini-2.5-flash")
+            response = model.generate_content([SCAN_PROMPT, img])
+            raw_text = response.text.strip()
 
-        # Clean up markdown code blocks using robust regex finding
-        import re
-        json_match = re.search(r'(\{.*\}|\[.*\])', raw_text, re.DOTALL)
-        if json_match:
-            json_str = json_match.group(1).strip()
-        else:
-            json_str = raw_text
+            import re
+            json_match = re.search(r'(\{.*\}|\[.*\])', raw_text, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(1).strip()
+            else:
+                json_str = raw_text
 
-        extracted = json.loads(json_str)
-        
-        # Normalize: if the API returns a single medicine object instead of a list, wrap it
-        if isinstance(extracted, dict):
-            if "medicines" not in extracted:
-                if "name" in extracted:
-                    extracted = {"medicines": [extracted]}
-                else:
-                    extracted = {"medicines": []}
-        elif isinstance(extracted, list):
-            extracted = {"medicines": extracted}
-        else:
-            extracted = {"medicines": []}
-    except Exception as e:
-        current_app.logger.error(f"Gemini error: {e}")
-        extracted = {"medicines": []}
+            extracted = json.loads(json_str)
 
-    return jsonify({
-        "scan_image_url": scan_image_url,
-        "extracted": extracted,
-    })
+            if isinstance(extracted, dict):
+                if "medicines" not in extracted:
+                    if "name" in extracted:
+                        extracted = {"medicines": [extracted]}
+                    else:
+                        extracted = {"medicines": []}
+            elif isinstance(extracted, list):
+                extracted = {"medicines": extracted}
+            else:
+                extracted = {"medicines": []}
+
+            return jsonify({"scan_image_url": scan_image_url, "extracted": extracted})
+
+        except Exception as e:
+            last_error = str(e)
+            current_app.logger.error(f"Gemini attempt {attempt+1}/{max_retries} failed: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(2 ** attempt)
+
+    err_lower = last_error.lower() if last_error else ""
+    if "quota" in err_lower or "rate" in err_lower or "safet" in err_lower:
+        return jsonify({"error": "API rate limit hit. Please wait and try again.", "code": "GEMINI_RATE_LIMIT", "retryable": True}), 429
+    if "api_key" in err_lower or "auth" in err_lower or "permission" in err_lower:
+        return jsonify({"error": "Server API key error. Contact support.", "code": "GEMINI_AUTH_ERROR", "retryable": False}), 500
+    return jsonify({"error": "Failed to extract medicines. Try a clearer photo.", "code": "GEMINI_EXTRACTION_FAILED", "retryable": True}), 500
 
 
 @medicine_bp.route("/api/medicine/add", methods=["POST"])
@@ -161,7 +172,8 @@ def add_medicine():
 
     try:
         schedule = json.loads(schedule_raw)
-    except Exception:
+    except Exception as e:
+        current_app.logger.warning(f"Invalid schedule JSON for user {user.id}: {e}")
         schedule = []
 
     days = None
@@ -210,7 +222,7 @@ def add_medicine():
         pack_image_url=pack_image_url,
     )
     db.session.add(entry)
-    db.session.commit()
+    safe_commit()
 
     return jsonify({"message": "Medicine added", "medicine": entry.to_dict()}), 201
 
@@ -305,7 +317,7 @@ def log_medicine():
         time_slot=time_slot,
     )
     db.session.add(log)
-    db.session.commit()
+    safe_commit()
 
     return jsonify({"message": "Dose logged", "log": log.to_dict()}), 201
 
@@ -330,8 +342,9 @@ def delete_medicine(entry_id):
     MedicineLog.query.filter_by(entry_id=entry_id).delete(synchronize_session=False)
     db.session.delete(entry)
     try:
-        db.session.commit()
-    except Exception:
+        safe_commit()
+    except Exception as e:
+        current_app.logger.error(f"Delete medicine {entry_id} commit failed: {e}")
         db.session.rollback()
         return jsonify({"error": "Failed to delete medicine"}), 500
 
@@ -360,28 +373,47 @@ def update_medicine(entry_id):
     days_raw = request.form.get("days")
     instructions = request.form.get("instructions")
 
+    errors = []
+
     if name:
-        entry.name = name.strip()
+        name = name.strip()
+        if not name:
+            errors.append("Medicine name cannot be empty")
+        else:
+            entry.name = name
     if dosage is not None:
         entry.dosage = dosage.strip() or None
     if instructions is not None:
         entry.instructions = instructions.strip() or None
 
+    valid_slots = {"morning", "afternoon", "evening", "night"}
     if schedule_raw is not None:
         try:
             schedule = json.loads(schedule_raw)
-            entry.schedule_json = json.dumps(schedule)
-        except Exception:
-            pass
+            if not isinstance(schedule, list):
+                errors.append("Schedule must be a list")
+            elif not all(s in valid_slots for s in schedule):
+                errors.append(f"Invalid schedule slots. Valid: {', '.join(valid_slots)}")
+            else:
+                entry.schedule_json = json.dumps(schedule)
+        except json.JSONDecodeError as e:
+            errors.append(f"Invalid schedule JSON: {e}")
 
     if days_raw is not None:
         if days_raw.strip():
             try:
-                entry.days = int(days_raw)
+                days = int(days_raw)
+                if days < 1 or days > 365:
+                    errors.append("Days must be between 1 and 365")
+                else:
+                    entry.days = days
             except (ValueError, TypeError):
-                entry.days = None
+                errors.append("Days must be a valid integer")
         else:
             entry.days = None
+
+    if errors:
+        return jsonify({"error": "Validation failed", "code": "VALIDATION_ERROR", "details": errors}), 422
 
     if "pack_image" in request.files:
         pack_file = request.files["pack_image"]
@@ -409,13 +441,24 @@ def update_medicine(entry_id):
                 f.write(buffered.getvalue())
             entry.pack_image_url = f"/uploads/{filename}"
 
-    db.session.commit()
+    safe_commit()
     return jsonify({"message": "Medicine updated", "medicine": entry.to_dict()})
 
 
 @medicine_bp.route("/uploads/<filename>")
 def serve_upload(filename):
-    """Serve uploaded images."""
+    """Serve uploaded images — requires valid auth token (header or ?token= query param)."""
+    user = get_current_user()
+    if not user:
+        token = request.args.get("token", "")
+        if token:
+            try:
+                payload = jwt.decode(token, current_app.config["SECRET_KEY"], algorithms=["HS256"])
+                user = User.query.get(payload["user_id"])
+            except Exception as e:
+                current_app.logger.warning(f"Invalid token in upload URL: {e}")
+    if not user:
+        return jsonify({"error": "Unauthorized"}), 401
     upload_dir = current_app.config["UPLOAD_FOLDER"]
     return send_from_directory(upload_dir, filename)
 
@@ -477,9 +520,11 @@ def batch_add_medicines():
             return jsonify({"error": "Forbidden - Target user is not in your family"}), 403
 
     added_entries = []
-    for med in medicines_data:
-        name = med.get("name")
+    errors = []
+    for idx, med in enumerate(medicines_data):
+        name = med.get("name", "").strip()
         if not name:
+            errors.append({"index": idx, "error": "Medicine name is required", "code": "MISSING_NAME"})
             continue
 
         dosage = med.get("dosage")
@@ -488,17 +533,26 @@ def batch_add_medicines():
         instructions = med.get("instructions")
         pack_image_url = med.get("pack_image_url")
 
+        valid_slots = {"morning", "afternoon", "evening", "night"}
+        if not isinstance(schedule, list) or not all(s in valid_slots for s in schedule):
+            errors.append({"index": idx, "error": "Invalid schedule slots", "code": "INVALID_SCHEDULE"})
+            continue
+
         days = None
         if days_raw is not None and str(days_raw).strip():
             try:
                 days = int(days_raw)
+                if days < 1 or days > 365:
+                    errors.append({"index": idx, "error": "Days must be between 1 and 365", "code": "INVALID_DAYS"})
+                    continue
             except (ValueError, TypeError):
-                days = None
+                errors.append({"index": idx, "error": "Days must be a valid number", "code": "INVALID_DAYS"})
+                continue
 
         entry = MedicineEntry(
             user_id=target_user_id,
             family_id=user.family_id,
-            name=name.strip(),
+            name=name,
             dosage=dosage.strip() if dosage else None,
             schedule_json=json.dumps(schedule),
             days=days,
@@ -509,9 +563,14 @@ def batch_add_medicines():
         db.session.add(entry)
         added_entries.append(entry)
 
-    db.session.commit()
+    safe_commit()
 
-    return jsonify({
-        "message": f"Added {len(added_entries)} medicines successfully",
-        "medicines": [e.to_dict() for e in added_entries]
-    }), 201
+    result = {
+        "message": f"Added {len(added_entries)} of {len(medicines_data)} medicines",
+        "added": len(added_entries),
+        "medicines": [e.to_dict() for e in added_entries],
+    }
+    if errors:
+        result["errors"] = errors
+        return jsonify(result), 207
+    return jsonify(result), 201

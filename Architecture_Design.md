@@ -1,56 +1,194 @@
-# DawaiSathi — Senior Architecture & Pre-Production Design
+# DawaiSathi — Architecture & Design
 
-As your senior developer, my goal is to design a production-grade, highly scalable architecture. We are dropping the Next.js monolithic approach from the original task and moving to a decoupled, high-performance architecture using a modern Python backend. 
+## Tech Stack (Implemented)
 
-## 1. The Tech Stack Selection
+| Layer | Technology | Notes |
+|---|---|---|
+| **Frontend** | React 18 + TypeScript + Vite | SPA with code-split routes |
+| **Styling** | Vanilla CSS | Mobile-first, glassmorphism, no framework dependency |
+| **Backend** | Python Flask + SQLAlchemy | REST API with Blueprint routes |
+| **Database** | SQLite | Dev environment; PostgreSQL-ready via SQLAlchemy abstraction |
+| **AI / Vision** | Google Gemini 2.0 Flash | Prescription OCR with structured JSON extraction |
+| **Auth** | Google OAuth 2.0 + JWT | Stateless bearer-token sessions |
+| **PWA** | Service Worker (Workbox) | Offline cache, push notifications, background sync |
+| **Camera** | react-webcam | Hardware camera with flash/torch support |
 
-### Frontend: React + Vite + TypeScript (PWA)
-Since we are building an offline-first PWA and moving the backend to Python, we don't need Next.js's Server-Side Rendering (SSR). A Single Page Application (SPA) built with Vite is incredibly fast, creates a smaller bundle (which makes hitting that 90+ Lighthouse score much easier), and pairs perfectly with `vite-plugin-pwa` for robust offline service workers.
+## Project Structure
 
-### Backend API: Django or Flask (Python)
-Absolutely! Both are excellent choices for a high-quality product, depending on our exact needs:
-- **Django (Recommended for Speed & Structure):** Provides a "batteries-included" experience. It comes with a built-in admin panel (perfect for managing users/family groups), a robust ORM, and excellent security out of the box. We would use **Django REST Framework (DRF)** to build the API.
-- **Flask (Recommended for Lightweight Control):** If we want maximum control over every component without the overhead of Django, Flask is perfect. We can pair it with `Flask-RESTful` and `SQLAlchemy`.
+```
+version_3/
+├── backend/
+│   ├── app.py                 # Flask entry point, error handlers
+│   ├── extensions.py          # safe_commit() helper, db init
+│   ├── models.py              # SQLAlchemy models (User, Family, MedicineEntry, MedicineLog)
+│   ├── scheduler.py           # Timezone-aware notification scheduler
+│   ├── routes/
+│   │   ├── auth.py            # Google OAuth, JWT, logout
+│   │   ├── medicine.py        # Scan, add, update, delete, upload, cabinet, Gemini
+│   │   ├── family.py          # Family group, join, members, inbox
+│   │   └── notifications.py   # Push subs, Telegram, timezone, settings
+│   └── .env.example
+├── frontend/
+│   ├── src/
+│   │   ├── App.tsx            # Router, auth provider, offline sync
+│   │   ├── main.tsx           # Entry + SW registration
+│   │   ├── sw.ts              # Service Worker (caching, push, notifications)
+│   │   ├── api/client.ts      # Axios instance with JWT interceptor
+│   │   ├── context/AuthContext.tsx  # Auth state, active member, timezone sync
+│   │   ├── pages/
+│   │   │   ├── Cabinet.tsx         # Medicine cabinet with per-slot delete
+│   │   │   ├── Scanner.tsx         # Camera scanner with quality feedback
+│   │   │   ├── ScanApproval.tsx    # Review/edit extracted medicines
+│   │   │   ├── SettingsDashboard.tsx # Push, Telegram, timezone settings
+│   │   │   ├── FamilySettings.tsx  # Family inbox, members
+│   │   │   ├── AuthGate.tsx        # Login screen
+│   │   │   └── AuthSuccess.tsx     # OAuth callback handler
+│   │   └── components/
+│   │       ├── AppLayout.tsx       # Layout with conditional FamilyPills
+│   │       └── FamilyPills.tsx     # Member switcher pills
+│   └── index.css               # All styles (2700+ lines)
+```
 
-### Database: MySQL (Primary) with PostgreSQL (Fallback)
-We will use a relational database to store Family Groups, Users, and Medicine Schedules. 
-- **MySQL** is an absolute powerhouse and a perfect primary option for this project. It is highly scalable, extremely reliable, and widely supported. 
-- **PostgreSQL** can serve as an alternative or fallback option. Because both Django's ORM and Flask's SQLAlchemy abstract the database layer, switching between MySQL and PostgreSQL requires almost zero code changes—it's simply a matter of changing a connection string in the environment variables.
+## Data Flow
 
-### Background Workers: Celery + Redis
-For CRON jobs and push notifications, we cannot rely on simple python loops. We need an enterprise-grade message broker. **Celery** with **Redis** will handle queuing push notifications exactly when a medicine is due, without slowing down the main Django/Flask server.
+### Prescription Scan Flow
 
-### AI Integration: Gemini Flash API
-Our Python backend will handle the image processing. The frontend securely sends the image to our Python API, the API communicates with Gemini, validates the response, and sends clean JSON back to the frontend.
+```
+1. User opens Scanner → camera activates
+2. User taps capture (or uploads from gallery)
+3. Image quality analyzed (brightness + contrast)
+4. Image sent to POST /api/medicine/scan
+5. Backend validates image size → calls Gemini Flash API
+6. Gemini returns structured JSON (medicines, dosages, schedule, confidence)
+7. Backend validates Gemini response → returns to frontend
+8. Frontend navigates to ScanApproval page
+9. User reviews/edits each medicine → confirms → POST /api/medicine/add
+10. Medicine saved to DB → Cabinet refreshes
+```
 
----
+### Family Sync Flow
 
-## 2. System Architecture & Data Flow
+```
+1. User A creates family → gets 6-character code
+2. User B enters code → POST /api/family/join
+3. Join request appears in User A's inbox
+4. User A approves → both see each other's family
+5. Each member has own cabinet (filtered by family_id + user_id)
+6. Active member switch: localStorage activeMemberId → cabinet reloads
+```
 
-### The 6-Digit Sync Flow
-1. **Creation:** A user creates a "Patient". The Python backend generates a random 6-digit `family_code` and creates a record in the `FamilyGroup` MySQL table.
-2. **Real-time Updates:** When a caregiver taps "Medicine Taken," the React frontend makes an asynchronous `POST` request to the backend. The backend updates MySQL.
-3. **Offline Handling:** If the caregiver is offline, the React frontend uses the browser's `IndexedDB` to queue the action. Once the device reconnects to the internet, a background sync flushes the queue to the backend to ensure data integrity.
+### Notification Flow
 
-### The Notification Infrastructure (The most complex part)
-1. **Scheduling:** When a user schedules a medicine for "Morning (8:00 AM)", the Python backend saves this schedule in MySQL.
-2. **The Worker:** Celery Beat runs a background task every 5 minutes: *"Find all medicines due in the next 5 minutes."*
-3. **The Push:** For every due medicine, Celery looks up all Web Push device tokens associated with that 6-digit `family_code` and fires off the Web Push API payload asynchronously to all family members.
+```
+1. User registers push subscription → POST /api/notifications/subscribe
+2. User sets time slots in Settings
+3. Backend scheduler runs every minute (scheduler.py)
+4. Finds due notifications based on slot_time + user timezone
+5. Sends Web Push payload to all subscribed devices
+6. Service Worker receives push → shows notification
+7. Notification click → opens cabinet page
+```
 
----
+## Key Backend Components
 
-## 3. The Path to a 90+ Lighthouse Score
+### Global Error Handler (`app.py`)
 
-To ensure our frontend is blazing fast and achieves top-tier performance/accessibility scores:
-1. **Asset Optimization:** We will code-split our React routes so the initial JavaScript load is tiny.
-2. **Image Compression:** We will compress blister pack photos on the client side before uploading them to the server to save bandwidth.
-3. **TailwindCSS Purging:** We will use TailwindCSS, which automatically removes all unused CSS, resulting in a microscopic stylesheet.
-4. **Accessibility First:** We will enforce WCAG high-contrast ratios and ARIA labels (essential for elderly users) to guarantee a 100 on the Lighthouse Accessibility metric.
+```python
+@ app.errorhandler(Exception)
+def handle_exception(e):
+    # Returns JSON {error, code, retryable} for all unhandled exceptions
+```
 
----
+Catches all 500s and unhandled exceptions so the frontend always gets a structured JSON error instead of HTML.
 
-## 4. Next Steps for Implementation
-If you are aligned with this architecture, we can proceed with:
-1. Initializing the Django/Flask & MySQL backend.
-2. Initializing the React + Vite frontend environment.
-3. Drafting the core database schema.
+### safe_commit() (`extensions.py`)
+
+```python
+def safe_commit():
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        raise
+```
+
+Replaces 23 bare `commit()` calls across all route files. Rollback on failure + re-raise so the global error handler can serialize it.
+
+### Gemini Extraction (`routes/medicine.py`)
+
+- Image size validation (rejects >20MB)
+- 2x retry with exponential backoff
+- Structured error responses by type:
+  - `GEMINI_RATE_LIMIT` (429)
+  - `GEMINI_AUTH_ERROR` (401)
+  - `GEMINI_EXTRACTION_FAILED` (422)
+  - `GEMINI_INVALID_IMAGE` (400)
+- Cabinet-contextual prompt emphasizing daily schedules and expiry
+
+### Batch-Add (`routes/medicine.py`)
+
+- Per-item validation with index tracking
+- Returns 207 Multi-Status on partial failure
+- Errors array includes index + field + message
+
+### Update Route (`routes/medicine.py`)
+
+- Validates schedule JSON structure and slot names
+- Returns 422 with details array
+- Supports per-slot delete (removes only the current slot, deletes entry only if last slot removed)
+
+## Key Frontend Components
+
+### AuthContext (`context/AuthContext.tsx`)
+
+- Google OAuth login/logout
+- JWT token management
+- Active family member tracking with `n > 0` validation
+- IANA timezone sync with retry cap (max 3 attempts)
+- Logout clears localStorage and resets active member
+
+### Scanner UI (`pages/Scanner.tsx`)
+
+- Full-screen camera view with tap-to-capture
+- Upload from gallery fallback
+- Flash/torch toggle
+- **Image quality analysis**: luminance + contrast check after capture
+- **Multi-line hint**: 📋 "Place prescription inside frame" + "Ensure good lighting and clear text"
+- **Collapsible tips**: 💡 toggle with 4 scan tips
+- **Cabinet tip**: "Align prescription so medicine names and time columns are clearly visible"
+- **Enhanced camera error**: step-by-step permission instructions
+- **Error toast**: auto-dismiss after 4s
+
+### Service Worker (`sw.ts`)
+
+- `clientsClaim()` + SKIP_WAITING handler for instant updates
+- NetworkFirst strategy for API calls (5 min cache)
+- StaleWhileRevalidate for images (7 day cache)
+- Push notification handler with notification click → focus/redirect
+- Schedule sync from backend via postMessage
+
+## Caching Strategy
+
+| Resource | Strategy | TTL |
+|---|---|---|
+| API responses | NetworkFirst | 5 min |
+| Images (uploads) | StaleWhileRevalidate | 7 days |
+| JS/CSS/HTML | Precache at install | Until updated |
+| Prescription photos | StaleWhileRevalidate | 7 days |
+
+## Security
+
+- JWT Bearer token for all API requests
+- Token required for `/uploads/` via `?token=` query param as fallback
+- Google OAuth 2.0 for authentication
+- Image upload size validation (20MB limit)
+- Batch-add validation per item
+- Schedule JSON structure validation on update
+
+## Future Architecture (Production)
+
+- **Database**: Migrate from SQLite to PostgreSQL (via Supabase/Railway)
+- **Background Workers**: Celery + Redis for reliable notification delivery
+- **Error Tracking**: Sentry/LogRocket for production error visibility
+- **Rate Limiting**: Per-user rate limits on Gemini API calls
+- **Image Compression**: Client-side compression before upload

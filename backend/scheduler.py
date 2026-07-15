@@ -61,7 +61,7 @@ def send_due_notifications() -> None:
         )
     )
 
-    for user in query.yield_per(100):
+    for user in query.all():
         try:
             _check_user(user, now_utc, db, family_members)
         except Exception as exc:

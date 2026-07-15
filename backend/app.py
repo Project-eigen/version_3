@@ -1,6 +1,6 @@
 import os
 import json
-from flask import Flask
+from flask import Flask, jsonify
 from flask_cors import CORS
 from config import Config
 from extensions import db
@@ -119,6 +119,16 @@ def create_app():
                 db.session.rollback()
             except Exception:
                 pass
+
+    @app.errorhandler(500)
+    def internal_error(error):
+        app.logger.error(f"Unhandled 500: {error}")
+        return jsonify({"error": "Internal server error", "code": "INTERNAL_ERROR", "retryable": True}), 500
+
+    @app.errorhandler(Exception)
+    def unhandled_exception(error):
+        app.logger.exception(f"Unhandled exception: {error}")
+        return jsonify({"error": "Internal server error", "code": "INTERNAL_ERROR", "retryable": True}), 500
 
     return app
 
