@@ -196,10 +196,10 @@ export default function FamilySettings() {
                   >
                     <div>
                       <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-                        {req.user_name || req.email}
+                        {req.requester?.name || req.requester?.email || 'Unknown'}
                       </div>
                       <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
-                        {req.email}
+                        {req.requester?.email || ''}
                       </div>
                     </div>
                     <div style={{ display: 'flex', gap: 6 }}>

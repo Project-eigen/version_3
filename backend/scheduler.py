@@ -116,6 +116,8 @@ def _check_user(user, now_utc: datetime, db, family_members: dict[int, list[int]
 
         # Has the slot time passed for today, and is it within a 2-hour catch-up window?
         slot_time = datetime.combine(today, time(h, m))
+        if getattr(user_local, 'tzinfo', None) is not None:
+            slot_time = slot_time.replace(tzinfo=user_local.tzinfo)
         if user_local < slot_time or user_local > slot_time + timedelta(hours=2):
             continue
 
