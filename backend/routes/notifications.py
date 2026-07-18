@@ -8,6 +8,7 @@ All API endpoints for the notification system:
   - Utility: manually re-register Telegram webhook URL
 """
 import json
+import os
 import random
 import logging
 import requests
@@ -448,19 +449,108 @@ def set_telegram_webhook():
 
 # ── Utility: external trigger for cron jobs ──────────────────────────────────
 
+def _cron_secret_ok() -> bool:
+    """Accept X-Cron-Secret header or ?cron_secret= / ?secret= query (cron-job.org friendly)."""
+    expected = (current_app.config.get("CRON_SECRET") or "").strip()
+    if not expected:
+        # Fail closed in production so the endpoint cannot be hammered anonymously
+        if os.environ.get("RENDER") == "true" or (os.environ.get("FLASK_ENV") or "").lower() == "production":
+            return False
+        return True
+    provided = (
+        request.headers.get("X-Cron-Secret")
+        or request.args.get("cron_secret")
+        or request.args.get("secret")
+        or ""
+    ).strip()
+    return provided == expected
+
+
 @notifications_bp.route("/api/notifications/trigger-check", methods=["GET", "POST"])
 def trigger_check():
     """Webhook for external cron services (like cron-job.org) to trigger the notification run."""
-    secret = request.headers.get("X-Cron-Secret", "")
-    expected = current_app.config.get("CRON_SECRET", "")
-    if expected and secret != expected:
-        return jsonify({"error": "Forbidden"}), 403
+    if not _cron_secret_ok():
+        return jsonify({"error": "Forbidden", "code": "CRON_SECRET_REQUIRED"}), 403
     from scheduler import send_due_notifications
+    from datetime import datetime, timezone
+    import runtime_state
+
     try:
         send_due_notifications()
+        runtime_state.LAST_TRIGGER_CHECK_AT = datetime.now(timezone.utc).isoformat()
+        runtime_state.LAST_TRIGGER_CHECK_OK = True
         return jsonify({"ok": True, "message": "Notification check executed"})
     except Exception as e:
+        runtime_state.LAST_TRIGGER_CHECK_AT = datetime.now(timezone.utc).isoformat()
+        runtime_state.LAST_TRIGGER_CHECK_OK = False
         return jsonify({"error": str(e)}), 500
+
+
+@notifications_bp.route("/api/notifications/health", methods=["GET"])
+def notifications_health():
+    """Telegram / web-push / cron health snapshot for the Settings UI."""
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    import runtime_state
+    import requests as _requests
+    from models import NotificationLog, PushSubscription
+
+    token = current_app.config.get("TELEGRAM_BOT_TOKEN") or ""
+    webhook_base = (current_app.config.get("TELEGRAM_WEBHOOK_URL") or "").rstrip("/")
+    expected_webhook = f"{webhook_base}/api/telegram/webhook" if webhook_base else ""
+
+    telegram = {
+        "token_configured": bool(token),
+        "webhook_base_configured": bool(webhook_base),
+        "user_linked": user.telegram_chat_id is not None,
+        "bot_username": None,
+        "webhook_url": None,
+        "webhook_pending_update_count": None,
+        "webhook_matches_config": None,
+        "error": None,
+    }
+    if token:
+        try:
+            me = _requests.get(f"https://api.telegram.org/bot{token}/getMe", timeout=8)
+            if me.ok:
+                telegram["bot_username"] = (me.json().get("result") or {}).get("username")
+            wh = _requests.get(f"https://api.telegram.org/bot{token}/getWebhookInfo", timeout=8)
+            if wh.ok:
+                info = wh.json().get("result") or {}
+                telegram["webhook_url"] = info.get("url") or ""
+                telegram["webhook_pending_update_count"] = info.get("pending_update_count")
+                if expected_webhook:
+                    telegram["webhook_matches_config"] = (info.get("url") or "") == expected_webhook
+        except Exception as e:
+            telegram["error"] = str(e)
+
+    push_count = PushSubscription.query.filter_by(user_id=user.id).count()
+    last_log = (
+        NotificationLog.query.filter_by(user_id=user.id)
+        .order_by(NotificationLog.sent_at.desc())
+        .first()
+    )
+
+    return jsonify({
+        "ok": True,
+        "telegram": telegram,
+        "web_push": {
+            "vapid_public_configured": bool(current_app.config.get("VAPID_PUBLIC_KEY")),
+            "vapid_private_configured": bool(current_app.config.get("VAPID_PRIVATE_KEY")),
+            "user_device_count": push_count,
+            "user_has_subscription": push_count > 0,
+        },
+        "cron": {
+            "secret_configured": bool((current_app.config.get("CRON_SECRET") or "").strip()),
+            "last_trigger_at": runtime_state.LAST_TRIGGER_CHECK_AT,
+            "last_trigger_ok": runtime_state.LAST_TRIGGER_CHECK_OK,
+            "recommended_interval_minutes": "20-30",
+        },
+        "last_notification_sent_at": last_log.sent_at.isoformat() + "Z" if last_log and last_log.sent_at else None,
+        "last_notification_slot": last_log.time_slot if last_log else None,
+    })
 
 
 # ── Utility: sync offline notification logs ───────────────────────────────────

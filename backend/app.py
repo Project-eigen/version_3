@@ -1,14 +1,16 @@
 import os
 import json
+from datetime import datetime, timezone
+
 from flask import Flask, jsonify
 from flask_cors import CORS
+from werkzeug.exceptions import HTTPException
 from config import Config
 from extensions import db
 from routes.auth import auth_bp
 from routes.family import family_bp
 from routes.medicine import medicine_bp
 from routes.notifications import notifications_bp
-
 
 def create_app():
     app = Flask(__name__)
@@ -20,7 +22,7 @@ def create_app():
         app,
         origins=[app.config["FRONTEND_URL"]],
         supports_credentials=True,
-        allow_headers=["Content-Type", "Authorization"],
+        allow_headers=["Content-Type", "Authorization", "X-Cron-Secret"],
         methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     )
 
@@ -81,10 +83,40 @@ def create_app():
             # Log and continue so / health checks can still answer while DB recovers.
             app.logger.exception(f"Database bootstrap failed (app will still start): {e}")
 
-    # Health check route for UptimeRobot
+    # Liveness — process is up (UptimeRobot / load balancers)
     @app.route("/")
     def health_check():
         return {"status": "healthy", "service": "DawaiSathi API"}, 200
+
+    # Readiness — process + database
+    @app.route("/healthz")
+    def healthz():
+        db_ok = False
+        db_error = None
+        try:
+            db.session.execute(db.text("SELECT 1"))
+            db_ok = True
+        except Exception as e:
+            db_error = str(e)
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+
+        cloudinary_configured = bool(app.config.get("CLOUDINARY_URL"))
+        payload = {
+            "status": "ok" if db_ok else "degraded",
+            "service": "DawaiSathi API",
+            "time": datetime.now(timezone.utc).isoformat(),
+            "checks": {
+                "database": {"ok": db_ok, "error": db_error},
+                "cloudinary_configured": cloudinary_configured,
+                "vapid_configured": bool(app.config.get("VAPID_PUBLIC_KEY") and app.config.get("VAPID_PRIVATE_KEY")),
+                "telegram_token_configured": bool(app.config.get("TELEGRAM_BOT_TOKEN")),
+                "cron_secret_configured": bool(app.config.get("CRON_SECRET")),
+            },
+        }
+        return jsonify(payload), (200 if db_ok else 503)
 
     # Start notification scheduler.
     # WERKZEUG_RUN_MAIN guard: under Flask's debug reloader the parent
@@ -130,6 +162,18 @@ def create_app():
             except Exception:
                 pass
 
+    @app.errorhandler(HTTPException)
+    def handle_http_exception(error: HTTPException):
+        # Expected client/server HTTP errors — do not log full stack as ERROR
+        if error.code and error.code >= 500:
+            app.logger.error(f"HTTP {error.code}: {error}")
+        else:
+            app.logger.info(f"HTTP {error.code}: {error.name}")
+        return jsonify({
+            "error": error.description or error.name,
+            "code": error.name.upper().replace(" ", "_") if error.name else "HTTP_ERROR",
+        }), error.code or 500
+
     @app.errorhandler(500)
     def internal_error(error):
         app.logger.error(f"Unhandled 500: {error}")
@@ -137,6 +181,9 @@ def create_app():
 
     @app.errorhandler(Exception)
     def unhandled_exception(error):
+        # HTTPException is handled above; this is only unexpected errors
+        if isinstance(error, HTTPException):
+            return handle_http_exception(error)
         app.logger.exception(f"Unhandled exception: {error}")
         return jsonify({"error": "Internal server error", "code": "INTERNAL_ERROR", "retryable": True}), 500
 

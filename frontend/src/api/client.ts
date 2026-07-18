@@ -32,10 +32,9 @@ api.interceptors.response.use(
 
 export function getImageUrl(url: string | null | undefined): string {
   if (!url) return ''
+  // Legacy local paths — files are gone on Render; avoid noisy 404 requests
   if (url.startsWith('/uploads/')) {
-    const baseUrl = import.meta.env.VITE_API_URL || ''
-    const token = localStorage.getItem('token') || ''
-    return `${baseUrl}${url}?token=${encodeURIComponent(token)}`
+    return ''
   }
   return url
 }

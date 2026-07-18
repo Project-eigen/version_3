@@ -8,7 +8,35 @@ import {
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type TimeSlotKey = 'morning' | 'afternoon' | 'evening' | 'night'
-type SectionKey = 'profile' | 'alerts'
+type SectionKey = 'profile' | 'alerts' | 'health'
+
+interface NotifHealth {
+  ok: boolean
+  telegram: {
+    token_configured: boolean
+    webhook_base_configured: boolean
+    user_linked: boolean
+    bot_username: string | null
+    webhook_url: string | null
+    webhook_pending_update_count: number | null
+    webhook_matches_config: boolean | null
+    error: string | null
+  }
+  web_push: {
+    vapid_public_configured: boolean
+    vapid_private_configured: boolean
+    user_device_count: number
+    user_has_subscription: boolean
+  }
+  cron: {
+    secret_configured: boolean
+    last_trigger_at: string | null
+    last_trigger_ok: boolean | null
+    recommended_interval_minutes: string
+  }
+  last_notification_sent_at: string | null
+  last_notification_slot: string | null
+}
 
 interface PushDevice {
   endpoint: string
@@ -49,6 +77,26 @@ function buildTimezoneOptions(): { value: string; label: string }[] {
 
 const TIMEZONES = buildTimezoneOptions()
 
+function HealthRow({ label, ok, detail }: { label: string; ok: boolean; detail?: string }) {
+  return (
+    <div style={{
+      display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start',
+      padding: '8px 10px', borderRadius: 10, background: 'var(--surface-2, rgba(0,0,0,0.04))',
+    }}>
+      <div>
+        <div style={{ fontWeight: 600 }}>{label}</div>
+        {detail && <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: 2, wordBreak: 'break-all' }}>{detail}</div>}
+      </div>
+      <span style={{
+        flexShrink: 0, fontSize: '0.72rem', fontWeight: 700,
+        color: ok ? 'var(--accent-teal, #0a8)' : 'var(--danger, #c44)',
+      }}>
+        {ok ? 'OK' : 'CHECK'}
+      </span>
+    </div>
+  )
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 async function urlBase64ToUint8Array(base64String: string): Promise<Uint8Array> {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
@@ -68,7 +116,10 @@ export default function SettingsDashboard() {
   const [openSections, setOpenSections] = useState<Record<SectionKey, boolean>>({
     profile: true,
     alerts: false,
+    health: false,
   })
+  const [notifHealth, setNotifHealth] = useState<NotifHealth | null>(null)
+  const [healthLoading, setHealthLoading] = useState(false)
 
   // 1. Notification & Timezone State
   const [settings, setSettings] = useState<NotifSettings | null>(null)
@@ -108,6 +159,19 @@ export default function SettingsDashboard() {
   const toggleSection = (key: SectionKey) => {
     setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }))
   }
+
+  const loadNotifHealth = useCallback(async () => {
+    setHealthLoading(true)
+    try {
+      const res = await api.get('/notifications/health')
+      setNotifHealth(res.data)
+    } catch {
+      setNotifHealth(null)
+      showToast('Could not load notification health', 'error')
+    } finally {
+      setHealthLoading(false)
+    }
+  }, [])
 
   // ── Load & Synchronize data on mount ─────────────────────────────────────────
   useEffect(() => {
@@ -555,7 +619,95 @@ export default function SettingsDashboard() {
               )}
             </div>
 
-
+            {/* Notification system health */}
+            <div className="card" style={{ marginBottom: 16, overflow: 'hidden' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  const next = !openSections.health
+                  toggleSection('health')
+                  if (next) loadNotifHealth()
+                }}
+                style={{
+                  width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  padding: '14px 16px', background: 'transparent', border: 'none', cursor: 'pointer', color: 'inherit',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <Info size={18} />
+                  <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>Notification health</span>
+                </div>
+                {openSections.health ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+              </button>
+              {openSections.health && (
+                <div style={{ padding: '0 16px 16px' }}>
+                  <button
+                    type="button"
+                    className="btn-ghost"
+                    onClick={loadNotifHealth}
+                    disabled={healthLoading}
+                    style={{ marginBottom: 12, fontSize: '0.8rem' }}
+                  >
+                    <RefreshCw size={12} className={healthLoading ? 'spin' : undefined} style={{ marginRight: 6 }} />
+                    {healthLoading ? 'Refreshing…' : 'Refresh status'}
+                  </button>
+                  {!notifHealth && !healthLoading && (
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>No data yet.</div>
+                  )}
+                  {notifHealth && (
+                    <div style={{ display: 'grid', gap: 10, fontSize: '0.8rem' }}>
+                      <HealthRow
+                        label="Telegram token"
+                        ok={notifHealth.telegram.token_configured}
+                        detail={notifHealth.telegram.bot_username ? `@${notifHealth.telegram.bot_username}` : undefined}
+                      />
+                      <HealthRow
+                        label="Telegram webhook"
+                        ok={notifHealth.telegram.webhook_matches_config !== false && !!notifHealth.telegram.webhook_url}
+                        detail={notifHealth.telegram.webhook_url || 'not set'}
+                      />
+                      <HealthRow
+                        label="Your Telegram linked"
+                        ok={notifHealth.telegram.user_linked}
+                      />
+                      <HealthRow
+                        label="VAPID (web push)"
+                        ok={notifHealth.web_push.vapid_public_configured && notifHealth.web_push.vapid_private_configured}
+                        detail={notifHealth.web_push.user_has_subscription
+                          ? `${notifHealth.web_push.user_device_count} device(s) on this account`
+                          : 'no push subscription on this account yet'}
+                      />
+                      <HealthRow
+                        label="Cron secret configured"
+                        ok={notifHealth.cron.secret_configured}
+                        detail={`interval recommend ${notifHealth.cron.recommended_interval_minutes} min`}
+                      />
+                      <HealthRow
+                        label="Last cron trigger (this worker)"
+                        ok={notifHealth.cron.last_trigger_ok !== false}
+                        detail={
+                          notifHealth.cron.last_trigger_at
+                            ? `${notifHealth.cron.last_trigger_at}${notifHealth.cron.last_trigger_ok === false ? ' (failed)' : ''}`
+                            : 'none since last deploy'
+                        }
+                      />
+                      <HealthRow
+                        label="Last reminder you received"
+                        ok={!!notifHealth.last_notification_sent_at}
+                        detail={
+                          notifHealth.last_notification_sent_at
+                            ? `${notifHealth.last_notification_sent_at} (${notifHealth.last_notification_slot || 'slot'})`
+                            : 'no notification_logs yet'
+                        }
+                      />
+                      {notifHealth.telegram.error && (
+                        <div style={{ color: 'var(--danger, #c44)', fontSize: '0.75rem' }}>{notifHealth.telegram.error}</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
 
           </div>
         )}

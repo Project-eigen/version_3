@@ -2,14 +2,15 @@ import os
 import json
 from datetime import datetime, date
 from flask import Blueprint, request, jsonify, send_from_directory, current_app
+from werkzeug.exceptions import NotFound
 from extensions import db, safe_commit
 from models import User, MedicineEntry, MedicineLog
 from routes.auth import get_current_user
+from cloudinary_utils import upload_image_bytes, CloudinaryUploadError
 import jwt
 import google.generativeai as genai
 from PIL import Image
 import io
-import uuid
 
 medicine_bp = Blueprint("medicine", __name__)
 
@@ -82,18 +83,15 @@ def scan_medicine():
         current_app.logger.error(f"Image processing error: {e}")
         return jsonify({"error": "Failed to process image", "code": "IMAGE_PROCESS_ERROR", "retryable": False}), 422
 
-    import cloudinary
-    import cloudinary.uploader
     try:
-        upload_result = cloudinary.uploader.upload(buffered.getvalue(), folder="dawaisathi")
-        scan_image_url = upload_result.get("secure_url")
-    except Exception as e:
-        current_app.logger.error(f"Cloudinary upload error: {e}")
-        filename = f"scan_{uuid.uuid4().hex}.jpg"
-        filepath = os.path.join(current_app.config["UPLOAD_FOLDER"], filename)
-        with open(filepath, "wb") as f:
-            f.write(buffered.getvalue())
-        scan_image_url = f"/uploads/{filename}"
+        scan_image_url = upload_image_bytes(buffered.getvalue(), folder="dawaisathi")
+    except CloudinaryUploadError as e:
+        return jsonify({
+            "error": "Image upload to CDN failed. Check CLOUDINARY_URL.",
+            "code": "CLOUDINARY_UPLOAD_FAILED",
+            "retryable": True,
+            "detail": str(e),
+        }), 502
 
     api_key = current_app.config.get("GEMINI_API_KEY")
     if not api_key:
@@ -194,21 +192,15 @@ def add_medicine():
         buffered = io.BytesIO()
         pack_img.save(buffered, format="JPEG", quality=75)
         
-        import cloudinary
-        import cloudinary.uploader
         try:
-            upload_result = cloudinary.uploader.upload(
-                buffered.getvalue(),
-                folder="dawaisathi"
-            )
-            pack_image_url = upload_result.get("secure_url")
-        except Exception as e:
-            current_app.logger.error(f"Cloudinary upload error: {e}")
-            filename = f"pack_{uuid.uuid4().hex}.jpg"
-            filepath = os.path.join(current_app.config["UPLOAD_FOLDER"], filename)
-            with open(filepath, "wb") as f:
-                f.write(buffered.getvalue())
-            pack_image_url = f"/uploads/{filename}"
+            pack_image_url = upload_image_bytes(buffered.getvalue(), folder="dawaisathi")
+        except CloudinaryUploadError as e:
+            return jsonify({
+                "error": "Pack image upload to CDN failed. Check CLOUDINARY_URL.",
+                "code": "CLOUDINARY_UPLOAD_FAILED",
+                "retryable": True,
+                "detail": str(e),
+            }), 502
 
     entry = MedicineEntry(
         user_id=target_user_id,
@@ -425,21 +417,15 @@ def update_medicine(entry_id):
         buffered = io.BytesIO()
         pack_img.save(buffered, format="JPEG", quality=75)
         
-        import cloudinary
-        import cloudinary.uploader
         try:
-            upload_result = cloudinary.uploader.upload(
-                buffered.getvalue(),
-                folder="dawaisathi"
-            )
-            entry.pack_image_url = upload_result.get("secure_url")
-        except Exception as e:
-            current_app.logger.error(f"Cloudinary upload error: {e}")
-            filename = f"pack_{uuid.uuid4().hex}.jpg"
-            filepath = os.path.join(current_app.config["UPLOAD_FOLDER"], filename)
-            with open(filepath, "wb") as f:
-                f.write(buffered.getvalue())
-            entry.pack_image_url = f"/uploads/{filename}"
+            entry.pack_image_url = upload_image_bytes(buffered.getvalue(), folder="dawaisathi")
+        except CloudinaryUploadError as e:
+            return jsonify({
+                "error": "Pack image upload to CDN failed. Check CLOUDINARY_URL.",
+                "code": "CLOUDINARY_UPLOAD_FAILED",
+                "retryable": True,
+                "detail": str(e),
+            }), 502
 
     safe_commit()
     return jsonify({"message": "Medicine updated", "medicine": entry.to_dict()})
@@ -447,7 +433,7 @@ def update_medicine(entry_id):
 
 @medicine_bp.route("/uploads/<filename>")
 def serve_upload(filename):
-    """Serve uploaded images — requires valid auth token (header or ?token= query param)."""
+    """Serve legacy local uploads (dev / old data). Missing files return quiet 404 — not 500."""
     user = get_current_user()
     if not user:
         token = request.args.get("token", "")
@@ -460,7 +446,19 @@ def serve_upload(filename):
     if not user:
         return jsonify({"error": "Unauthorized"}), 401
     upload_dir = current_app.config["UPLOAD_FOLDER"]
-    return send_from_directory(upload_dir, filename)
+    filepath = os.path.join(upload_dir, filename)
+    if not os.path.isfile(filepath):
+        # Expected for migrated rows whose ephemeral files are gone — do not raise NotFound
+        current_app.logger.info(f"Missing local upload (cleared or never on this host): {filename}")
+        return jsonify({
+            "error": "Image not available",
+            "code": "UPLOAD_NOT_FOUND",
+            "hint": "Legacy local path; re-scan or re-upload. New images use Cloudinary.",
+        }), 404
+    try:
+        return send_from_directory(upload_dir, filename)
+    except NotFound:
+        return jsonify({"error": "Image not available", "code": "UPLOAD_NOT_FOUND"}), 404
 
 
 @medicine_bp.route("/api/medicine/upload-image", methods=["POST"])
@@ -485,17 +483,15 @@ def upload_image():
     buffered = io.BytesIO()
     img.save(buffered, format="JPEG", quality=75)
 
-    import cloudinary
-    import cloudinary.uploader
     try:
-        upload_result = cloudinary.uploader.upload(
-            buffered.getvalue(),
-            folder="dawaisathi"
-        )
-        return jsonify({"url": upload_result.get("secure_url")})
-    except Exception as e:
-        current_app.logger.error(f"Cloudinary upload error: {e}")
-        return jsonify({"error": "Failed to upload image to CDN"}), 500
+        url = upload_image_bytes(buffered.getvalue(), folder="dawaisathi")
+        return jsonify({"url": url})
+    except CloudinaryUploadError as e:
+        return jsonify({
+            "error": "Failed to upload image to CDN",
+            "code": "CLOUDINARY_UPLOAD_FAILED",
+            "detail": str(e),
+        }), 502
 
 
 @medicine_bp.route("/api/medicine/batch-add", methods=["POST"])
