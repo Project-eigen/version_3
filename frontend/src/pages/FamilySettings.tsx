@@ -9,6 +9,7 @@ export default function FamilySettings() {
   const { user, refreshUser, activeMemberId, setActiveMemberId } = useAuth()
   const [members, setMembers] = useState<User[]>([])
   const [requests, setRequests] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
   const [showJoinModal, setShowJoinModal] = useState(false)
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [joinEmail, setJoinEmail] = useState('')
@@ -24,7 +25,8 @@ export default function FamilySettings() {
     setTimeout(() => setToast(null), 3000)
   }
 
-  const fetchFamilyData = useCallback(async () => {
+  const fetchFamilyData = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true)
     try {
       const [membersRes, inboxRes] = await Promise.all([
         api.get('/family/members'),
@@ -35,6 +37,8 @@ export default function FamilySettings() {
     } catch (e) {
       if (import.meta.env.DEV) console.error('[Family] fetch error:', e)
       showToast('Failed to load family data', 'error')
+    } finally {
+      setLoading(false)
     }
   }, [])
 
@@ -43,7 +47,7 @@ export default function FamilySettings() {
     try {
       await api.post('/family/respond', { request_id: reqId, action: 'accept' })
       showToast('✓ Request accepted!', 'success')
-      fetchFamilyData()
+      fetchFamilyData({ silent: true })
     } catch {
       showToast('Failed to accept request', 'error')
     } finally {
@@ -56,7 +60,7 @@ export default function FamilySettings() {
     try {
       await api.post('/family/respond', { request_id: reqId, action: 'reject' })
       showToast('✓ Request rejected!', 'success')
-      fetchFamilyData()
+      fetchFamilyData({ silent: true })
     } catch {
       showToast('Failed to reject request', 'error')
     } finally {
@@ -114,7 +118,23 @@ export default function FamilySettings() {
         activeMemberId={activeMemberId}
         onSelectMember={handleSelectMember}
       >
-        {!inFamily ? (
+        {loading ? (
+          /* INITIAL LOAD — match Cabinet skeleton language */
+          <div className="page-content" aria-busy="true" aria-label="Loading family">
+            <div style={{ padding: '16px 16px 8px' }}>
+              <div className="skeleton-line" style={{ width: 140, height: 12, marginBottom: 12 }} />
+            </div>
+            {[1, 2, 3].map((n) => (
+              <div key={n} className="skeleton-card" style={{ margin: '0 16px 8px' }}>
+                <div className="skeleton-thumb" style={{ borderRadius: '50%', width: 48, height: 48 }} />
+                <div style={{ flex: 1 }}>
+                  <div className="skeleton-line" style={{ width: '55%', marginBottom: 8 }} />
+                  <div className="skeleton-line" style={{ width: '40%', height: 10 }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : !inFamily ? (
           /* NO FAMILY STATE */
           <div className="page-content" style={{ display: 'flex', flexDirection: 'column' }}>
             {hasPendingRequest ? (

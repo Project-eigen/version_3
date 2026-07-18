@@ -96,12 +96,24 @@ Expected `healthz` (abbreviated):
     "cloudinary_configured": true,
     "cron_secret_configured": true,
     "vapid_configured": true,
-    "telegram_token_configured": true
+    "telegram_token_configured": true,
+    "telegram_webhook_base_configured": true,
+    "notifications": {
+      "cron_secret_configured": true,
+      "last_trigger_at": "2026-07-18T12:00:00+00:00",
+      "last_trigger_ok": true,
+      "recommended_interval_minutes": "20-30",
+      "telegram_token_configured": true,
+      "telegram_webhook_base_configured": true,
+      "vapid_configured": true
+    }
   }
 }
 ```
 
 `status` is `degraded` and HTTP **503** if the DB check fails.
+
+`checks.notifications` is **public, system-only** (config flags + last cron on this worker). No user PII, no live Telegram API calls.
 
 ### Notification cron (production)
 
@@ -131,15 +143,17 @@ curl -sS -i \
 
 Reminders can be delayed up to the cron interval.
 
-### Notification health (logged-in user)
+### Notification / ops health (public)
+
+Use **`GET /healthz`** — see `checks.notifications` for cron last-run and config flags:
 
 ```bash
-curl -sS \
-  "https://dawaisathi-api.onrender.com/api/notifications/health" \
-  -H "Authorization: Bearer YOUR_JWT"
+curl -sS "https://dawaisathi-api.onrender.com/healthz"
+# Pretty-print notifications block (jq optional):
+curl -sS "https://dawaisathi-api.onrender.com/healthz" | jq '.checks.notifications'
 ```
 
-Also available in the app: **Settings → Notification health**.
+There is no Settings UI for ops health and no JWT `/api/notifications/health` endpoint.
 
 ### PowerShell
 
@@ -165,9 +179,8 @@ curl.exe -sS "https://dawaisathi-api.onrender.com/api/notifications/trigger-chec
 | Path | Auth | Meaning |
 |------|------|---------|
 | `GET /` | no | Process alive |
-| `GET /healthz` | no | DB + config readiness |
+| `GET /healthz` | no | DB + config readiness + `checks.notifications` (cron last run, flags) |
 | `GET/POST /api/notifications/trigger-check` | `CRON_SECRET` | Run due dose notifications |
-| `GET /api/notifications/health` | JWT | Telegram webhook, VAPID, last cron / last send |
 
 ---
 
@@ -194,7 +207,7 @@ curl -sS "https://dawaisathi-api.onrender.com/healthz"
 curl -sS "https://dawaisathi-api.onrender.com/api/notifications/trigger-check?cron_secret=YOUR_CRON_SECRET"
 ```
 
-4. Open Settings → Notification health in the app.
+4. Confirm `checks.notifications` on `/healthz` (last_trigger after a cron hit).
 5. Update cron-job.org if `CRON_SECRET` changed.
 
 ---

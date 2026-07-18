@@ -88,9 +88,11 @@ def create_app():
     def health_check():
         return {"status": "healthy", "service": "DawaiSathi API"}, 200
 
-    # Readiness — process + database
+    # Readiness — process + database + system notification config (no auth, no user PII)
     @app.route("/healthz")
     def healthz():
+        import runtime_state
+
         db_ok = False
         db_error = None
         try:
@@ -104,6 +106,15 @@ def create_app():
                 pass
 
         cloudinary_configured = bool(app.config.get("CLOUDINARY_URL"))
+        vapid_configured = bool(
+            app.config.get("VAPID_PUBLIC_KEY") and app.config.get("VAPID_PRIVATE_KEY")
+        )
+        telegram_token_configured = bool(app.config.get("TELEGRAM_BOT_TOKEN"))
+        telegram_webhook_base_configured = bool(
+            (app.config.get("TELEGRAM_WEBHOOK_URL") or "").strip()
+        )
+        cron_secret_configured = bool((app.config.get("CRON_SECRET") or "").strip())
+
         payload = {
             "status": "ok" if db_ok else "degraded",
             "service": "DawaiSathi API",
@@ -111,9 +122,19 @@ def create_app():
             "checks": {
                 "database": {"ok": db_ok, "error": db_error},
                 "cloudinary_configured": cloudinary_configured,
-                "vapid_configured": bool(app.config.get("VAPID_PUBLIC_KEY") and app.config.get("VAPID_PRIVATE_KEY")),
-                "telegram_token_configured": bool(app.config.get("TELEGRAM_BOT_TOKEN")),
-                "cron_secret_configured": bool(app.config.get("CRON_SECRET")),
+                "vapid_configured": vapid_configured,
+                "telegram_token_configured": telegram_token_configured,
+                "telegram_webhook_base_configured": telegram_webhook_base_configured,
+                "cron_secret_configured": cron_secret_configured,
+                "notifications": {
+                    "cron_secret_configured": cron_secret_configured,
+                    "last_trigger_at": runtime_state.LAST_TRIGGER_CHECK_AT,
+                    "last_trigger_ok": runtime_state.LAST_TRIGGER_CHECK_OK,
+                    "recommended_interval_minutes": "20-30",
+                    "telegram_token_configured": telegram_token_configured,
+                    "telegram_webhook_base_configured": telegram_webhook_base_configured,
+                    "vapid_configured": vapid_configured,
+                },
             },
         }
         return jsonify(payload), (200 if db_ok else 503)

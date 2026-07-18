@@ -29,7 +29,7 @@ npm run build
 | `/home` | Family |
 | `/cabinet` | Medicine cabinet |
 | `/scanner` | Prescription scan |
-| `/settings` | Alerts + **Notification health** |
+| `/settings` | Profile + Reminder Preferences (push, Telegram, slots) |
 
 ## Ops docs
 

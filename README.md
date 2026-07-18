@@ -24,7 +24,7 @@ curl -sS "https://dawaisathi-api.onrender.com/api/notifications/trigger-check?cr
 - **Push Notifications** — Web Push + Telegram reminders at each time slot
 - **Offline-First PWA** — Works offline with cached cabinet data; IndexedDB queue for offline sync
 - **Google OAuth** — Sign in with Google, JWT session management
-- **Notification health** — Settings panel for Telegram webhook, VAPID, last cron trigger
+- **Ops health** — Public `GET /healthz` includes notification system flags and last cron run
 - **Real-Time Quality Feedback** — Image brightness/contrast analysis before scan submission
 - **Camera Error Guidance** — Step-by-step instructions when camera permissions are denied
 
@@ -150,9 +150,8 @@ For production, also add your Render origins/redirects (see [DEPLOY.md](DEPLOY.m
 | Path | Purpose |
 |------|---------|
 | `GET /` | Liveness |
-| `GET /healthz` | Readiness (DB + config flags) |
+| `GET /healthz` | Readiness (DB + config + `checks.notifications` cron flags) |
 | `GET /api/notifications/trigger-check` | Dose cron (needs `CRON_SECRET` in prod) |
-| `GET /api/notifications/health` | Telegram / VAPID / last trigger (JWT) |
 
 Full curl examples: [DEPLOY.md](DEPLOY.md#curl-cheat-sheet).
 
@@ -163,8 +162,8 @@ Production reliability (see [DEPLOY.md](DEPLOY.md)):
 - Cloudinary-only uploads in production (no `/uploads` disk fallback on Render)
 - Supabase **IPv4 pooler** required (direct host is IPv6-only and breaks Render)
 - `CRON_SECRET` for `/api/notifications/trigger-check` (403 without secret in production)
-- `/healthz` database check; quieter handling of expected 404s
-- Settings → **Notification health** (webhook, VAPID, last cron)
+- `/healthz` database check + public notification system flags (no Settings ops UI)
+- Family page skeleton loading (parity with Cabinet)
 
 Earlier product work — see [summary.md](summary.md):
 
