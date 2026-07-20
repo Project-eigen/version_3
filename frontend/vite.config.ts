@@ -48,6 +48,7 @@ export default defineConfig({
   ],
   server: {
     port: 5173,
+    allowedHosts: true,
     proxy: {
       '/api': 'http://127.0.0.1:5000',
       '/uploads': 'http://127.0.0.1:5000',

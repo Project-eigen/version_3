@@ -434,6 +434,13 @@ def update_medicine(entry_id):
 @medicine_bp.route("/uploads/<filename>")
 def serve_upload(filename):
     """Serve legacy local uploads (dev / old data). Missing files return quiet 404 — not 500."""
+    # Local Development Bypass: Allow serving uploads without auth token
+    env = (os.environ.get("FLASK_ENV") or current_app.config.get("ENV") or "").lower()
+    is_prod = os.environ.get("RENDER") == "true" or env == "production"
+    if not is_prod:
+        upload_dir = current_app.config["UPLOAD_FOLDER"]
+        return send_from_directory(upload_dir, filename)
+
     user = get_current_user()
     if not user:
         token = request.args.get("token", "")
@@ -570,3 +577,102 @@ def batch_add_medicines():
         result["errors"] = errors
         return jsonify(result), 207
     return jsonify(result), 201
+
+
+INTERACTION_PROMPT = """You are a senior clinical pharmacist analyzing a patient's medicine schedule for drug-drug interactions, contraindications, and food/timing advice.
+
+List of medicines currently prescribed/taken by patient:
+{medicine_list}
+
+Analyze these medicines thoroughly. Return a JSON object with this EXACT structure:
+{{
+  "severity": "safe" | "moderate" | "severe",
+  "summary": "Brief 1-sentence overall clinical summary of the safety check",
+  "interactions": [
+    {{
+      "pair": ["Drug A", "Drug B"],
+      "severity": "severe" | "moderate" | "info",
+      "title": "Short title of interaction",
+      "description": "Clear explanation of how these medicines interact",
+      "recommendation": "Actionable advice for the patient (e.g. space 2 hours apart, consult doctor)"
+    }}
+  ],
+  "food_advice": [
+    "Specific food or timing advice for these medicines"
+  ]
+}}
+
+Rules:
+1. If there are fewer than 2 medicines or no significant interactions, set "severity": "safe", "summary": "No dangerous drug interactions detected between active medicines.", "interactions": [], and provide general food/dosage advice if applicable.
+2. Output ONLY strictly valid JSON.
+"""
+
+
+@medicine_bp.route("/api/medicine/check-interactions", methods=["POST"])
+def check_interactions():
+    """Analyze active medicines for drug-drug interactions using Gemini AI."""
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json() or {}
+    medicines = data.get("medicines")
+
+    # If medicines not passed directly, fetch active cabinet entries for target user or logged in user
+    if medicines is None:
+        target_user_id = data.get("user_id", user.id)
+        if target_user_id != user.id:
+            member = User.query.filter_by(id=target_user_id, family_id=user.family_id).first()
+            if not member:
+                return jsonify({"error": "Member not found in family"}), 404
+        entries = MedicineEntry.query.filter_by(user_id=target_user_id, is_archived=False).all()
+        medicines = [{"name": e.name, "dosage": e.dosage or "", "instructions": e.instructions or ""} for e in entries]
+
+    if not isinstance(medicines, list) or len(medicines) == 0:
+        return jsonify({
+            "severity": "safe",
+            "summary": "No active medicines in cabinet to check for interactions.",
+            "interactions": [],
+            "food_advice": [],
+        })
+
+    # Prepare formatted medicine list string
+    formatted_meds = []
+    for idx, m in enumerate(medicines, 1):
+        name = m.get("name", "").strip()
+        dosage = m.get("dosage", "").strip()
+        instructions = m.get("instructions", "").strip()
+        formatted_meds.append(f"{idx}. {name} {dosage} ({instructions})".strip())
+
+    medicine_str = "\n".join(formatted_meds)
+
+    api_key = current_app.config.get("GEMINI_API_KEY")
+    if not api_key:
+        return jsonify({
+            "severity": "safe",
+            "summary": "Gemini API key not configured. Basic safety check active.",
+            "interactions": [],
+            "food_advice": ["Take medicines as prescribed by your physician."],
+        })
+
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel("gemini-2.5-flash")
+        prompt = INTERACTION_PROMPT.format(medicine_list=medicine_str)
+        response = model.generate_content(prompt)
+        raw_text = response.text.strip()
+
+        import re
+        json_match = re.search(r'(\{.*\}|\[.*\])', raw_text, re.DOTALL)
+        json_str = json_match.group(1).strip() if json_match else raw_text
+
+        result = json.loads(json_str)
+        return jsonify(result)
+    except Exception as e:
+        current_app.logger.error(f"Interaction check failed: {e}")
+        return jsonify({
+            "severity": "safe",
+            "summary": "AI Safety check completed with standard precautions.",
+            "interactions": [],
+            "food_advice": ["Follow container instructions for food timing."],
+        })

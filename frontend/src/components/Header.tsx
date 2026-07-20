@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom'
-import { Settings } from 'lucide-react'
+import { Settings, Home } from 'lucide-react'
 import BrandLogo from './BrandLogo'
 
 export default function Header() {
@@ -13,11 +13,19 @@ export default function Header() {
         onClick={() => navigate('/cabinet')}
         aria-label="DawaiSathi home — open cabinet"
       >
-        <BrandLogo variant="mark" size={32} alt="" className="brand-mark-img" />
-        <span className="brand-text">DawaiSathi</span>
+        <BrandLogo variant="wordmark" size={32} alt="" />
       </button>
 
       <div className="header-actions">
+        <button
+          type="button"
+          onClick={() => navigate('/cabinet')}
+          className="icon-btn"
+          aria-label="Go to cabinet"
+          style={{ marginRight: '4px' }}
+        >
+          <Home size={20} aria-hidden="true" />
+        </button>
         <button
           type="button"
           onClick={() => navigate('/settings')}

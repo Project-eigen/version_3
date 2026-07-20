@@ -1,5 +1,7 @@
 import { useState, useRef } from 'react'
 import Modal from './Modal'
+import PhotoSourceSheet from './PhotoSourceSheet'
+import CameraCapture from './CameraCapture'
 import api, { getImageUrl } from '../api/client'
 import type { MedicineEntry, TimeSlot } from '../types'
 import { Pill } from 'lucide-react'
@@ -27,7 +29,9 @@ export default function EditMedicineModal({ med, onClose, onSave }: EditMedicine
   const [packFile, setPackFile] = useState<File | null>(null)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [photoSheetOpen, setPhotoSheetOpen] = useState(false)
+  const [cameraOpen, setCameraOpen] = useState(false)
+  const galleryInputRef = useRef<HTMLInputElement>(null)
 
   const toggleSchedule = (slot: TimeSlot) => {
     setSchedule((prev) =>
@@ -41,7 +45,18 @@ export default function EditMedicineModal({ med, onClose, onSave }: EditMedicine
       setPackFile(file)
       setPackImagePreview(URL.createObjectURL(file))
     }
+    // Reset so the same file can be re-selected if needed
+    e.target.value = ''
   }
+
+  // In-page webcam capture returned a file
+  const handleCameraCapture = (file: File) => {
+    setPackFile(file)
+    setPackImagePreview(URL.createObjectURL(file))
+  }
+
+  const handleCameraSelect = () => { setCameraOpen(true) }
+  const handleGallerySelect = () => { galleryInputRef.current?.click() }
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -174,16 +189,19 @@ export default function EditMedicineModal({ med, onClose, onSave }: EditMedicine
             <button
               type="button"
               className="attach-photo-row-btn"
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => setPhotoSheetOpen(true)}
             >
-              Change photo
+              {packImagePreview ? 'Change photo' : 'Add photo'}
             </button>
+
+            {/* Gallery input only — camera handled by CameraCapture overlay */}
             <input
-              ref={fileInputRef}
+              ref={galleryInputRef}
               type="file"
               accept="image/*"
               onChange={handlePhotoSelect}
               className="visually-hidden"
+              id="edit-pack-gallery-input"
             />
           </div>
         </div>
@@ -203,6 +221,21 @@ export default function EditMedicineModal({ med, onClose, onSave }: EditMedicine
           </button>
         </div>
       </form>
+
+      {/* Photo Source Picker Sheet */}
+      <PhotoSourceSheet
+        open={photoSheetOpen}
+        onCamera={handleCameraSelect}
+        onGallery={handleGallerySelect}
+        onClose={() => setPhotoSheetOpen(false)}
+      />
+
+      {/* In-page webcam capture */}
+      <CameraCapture
+        open={cameraOpen}
+        onCapture={handleCameraCapture}
+        onClose={() => setCameraOpen(false)}
+      />
     </Modal>
   )
 }

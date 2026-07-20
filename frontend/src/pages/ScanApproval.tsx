@@ -2,6 +2,8 @@ import React, { useState, useRef, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import Header from '../components/Header'
+import PhotoSourceSheet from '../components/PhotoSourceSheet'
+import CameraCapture from '../components/CameraCapture'
 import api, { getImageUrl } from '../api/client'
 import type { TimeSlot, User } from '../types'
 import { Pencil, ImagePlus, Check, Trash2, Plus, X } from 'lucide-react'
@@ -104,7 +106,9 @@ export default function ScanApproval() {
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
   const [activePhotoIdx, setActivePhotoIdx] = useState<number | null>(null)
   const [lightboxOpen, setLightboxOpen] = useState(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [photoSheetOpen, setPhotoSheetOpen] = useState(false)
+  const [cameraOpen, setCameraOpen] = useState(false)
+  const galleryInputRef = useRef<HTMLInputElement>(null)
   const [unparsedLines, setUnparsedLines] = useState<string[]>(() => {
     return state?.scanData?.extracted?.unparsed_lines || []
   })
@@ -208,9 +212,36 @@ export default function ScanApproval() {
     setUnparsedLines((prev) => prev.filter((l) => l !== line))
   }
 
+  // Open the source picker; store which card's photo we're updating
   const triggerPhotoUpload = (idx: number) => {
     setActivePhotoIdx(idx)
-    fileInputRef.current?.click()
+    setPhotoSheetOpen(true)
+  }
+
+  // Opens the in-page webcam modal
+  const handleCameraSelect = () => {
+    setCameraOpen(true)
+  }
+
+  // Called when user picks "Gallery" from the sheet
+  const handleGallerySelect = () => {
+    galleryInputRef.current?.click()
+  }
+
+  // Called by CameraCapture when the user takes a photo
+  const handleCameraCapture = (file: File) => {
+    if (activePhotoIdx === null) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      setMedicines((prev) =>
+        prev.map((med, idx) =>
+          idx === activePhotoIdx
+            ? { ...med, packImage: ev.target?.result as string, packFile: file }
+            : med
+        )
+      )
+    }
+    reader.readAsDataURL(file)
   }
 
   const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -228,6 +259,7 @@ export default function ScanApproval() {
       }
       reader.readAsDataURL(file)
     }
+    // Reset the input so the same file can be selected again if needed
     e.target.value = ''
   }
 
@@ -539,15 +571,29 @@ export default function ScanApproval() {
         </div>
       </div>
 
-      {/* Hidden File Input for capture/upload */}
+      {/* Gallery input — no capture attribute, shows file picker / photos */}
       <input
-        ref={fileInputRef}
+        ref={galleryInputRef}
         type="file"
         accept="image/*"
-        capture="environment"
         style={{ display: 'none' }}
         onChange={handlePhotoSelect}
-        id="pack-image-input-hidden"
+        id="pack-image-gallery-input"
+      />
+
+      {/* Photo Source Picker */}
+      <PhotoSourceSheet
+        open={photoSheetOpen}
+        onCamera={handleCameraSelect}
+        onGallery={handleGallerySelect}
+        onClose={() => setPhotoSheetOpen(false)}
+      />
+
+      {/* In-page webcam capture */}
+      <CameraCapture
+        open={cameraOpen}
+        onCapture={handleCameraCapture}
+        onClose={() => setCameraOpen(false)}
       />
 
       {/* Scanned Image Lightbox Modal */}

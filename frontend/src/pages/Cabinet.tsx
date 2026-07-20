@@ -6,9 +6,10 @@ import SkeletonRow from '../components/SkeletonRow'
 import Toast from '../components/Toast'
 import EmptyState from '../components/EmptyState'
 import EditMedicineModal from '../components/EditMedicineModal'
+import InteractionCheckerCard from '../components/InteractionCheckerCard'
 import api, { getImageUrl } from '../api/client'
 import type { User, MedicineEntry, TimeSlot } from '../types'
-import { Pill, Archive, X, Trash2, Pencil } from 'lucide-react'
+import { Pill, Archive, X, Trash2, Pencil, Clock } from 'lucide-react'
 
 const TIME_SLOTS: { key: TimeSlot; label: string; time: string }[] = [
   { key: 'morning', label: 'Morning', time: '8:00 AM' },
@@ -17,24 +18,98 @@ const TIME_SLOTS: { key: TimeSlot; label: string; time: string }[] = [
   { key: 'night', label: 'Night', time: '10:00 PM' },
 ]
 
+// Default slot times in 24h "HH:MM" format — mirrors backend defaults
+const DEFAULT_SLOT_TIMES: Record<TimeSlot, string> = {
+  morning: '08:00',
+  afternoon: '13:00',
+  evening: '18:00',
+  night: '22:00',
+}
+
+// Minutes before the scheduled slot time when logging becomes available
+const LOGGING_WINDOW_MINUTES = 60
+
+type LoggingState = 'dormant' | 'active' | 'logged'
+
+/**
+ * Returns the logging state for a medicine dose.
+ * - 'logged'  : dose already taken today
+ * - 'active'  : within the logging window (up to LOGGING_WINDOW_MINUTES before slot)
+ * - 'dormant' : too early — window hasn't opened yet
+ */
+function getLoggingState(slotTime: string, isLogged: boolean): LoggingState {
+  if (isLogged) return 'logged'
+
+  const now = new Date()
+  const [hStr, mStr] = slotTime.split(':')
+  const slotDate = new Date()
+  slotDate.setHours(parseInt(hStr, 10), parseInt(mStr, 10), 0, 0)
+
+  // Window opens LOGGING_WINDOW_MINUTES before the scheduled dose time
+  const windowOpenMs = slotDate.getTime() - LOGGING_WINDOW_MINUTES * 60 * 1000
+  return now.getTime() >= windowOpenMs ? 'active' : 'dormant'
+}
+
+/** Formats "HH:MM" → "8:00 AM" / "1:00 PM" style */
+function formatSlotTime(slotTime: string): string {
+  const [hStr, mStr] = slotTime.split(':')
+  const hour = parseInt(hStr, 10)
+  const ampm = hour >= 12 ? 'PM' : 'AM'
+  const h12 = hour % 12 || 12
+  return `${h12}:${mStr} ${ampm}`
+}
+
 interface MedCardProps {
   med: MedicineEntry
   slot: TimeSlot
+  /** Resolved slot time in "HH:MM" 24h format, factoring in user's custom times */
+  slotTime: string
   onLog: (entryId: number, slot: TimeSlot) => Promise<void>
   onImageClick: (url: string) => void
-  onDelete: (entryId: number, slot: TimeSlot) => Promise<void>
+  onDelete: (entryId: number, slot: TimeSlot) => void
   onEdit: (med: MedicineEntry) => void
 }
 
-function MedicineCard({ med, slot, onLog, onImageClick, onDelete, onEdit }: MedCardProps) {
+import { motion, AnimatePresence } from 'framer-motion'
+
+const cardVariants = {
+  hidden: { opacity: 0, y: 15 },
+  visible: { 
+    opacity: 1, 
+    y: 0, 
+    transition: { type: 'spring' as const, stiffness: 280, damping: 23 } 
+  },
+  exit: { 
+    opacity: 0, 
+    scale: 0.95, 
+    y: -8,
+    transition: { duration: 0.18 } 
+  }
+}
+
+function MedicineCard({ med, slot, slotTime, onLog, onImageClick, onDelete, onEdit }: MedCardProps) {
   const isLogged = med.today_logs?.includes(slot) ?? false
+  const [loggingState, setLoggingState] = useState<LoggingState>(
+    () => getLoggingState(slotTime, isLogged)
+  )
   const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [holding, setHolding] = useState(false)
   const [progress, setProgress] = useState(0)
   const progressTimer = useRef<ReturnType<typeof setInterval> | null>(null)
 
+  // Re-evaluate the logging window every 30 seconds so the card updates
+  // automatically when the window opens (e.g., at 12:00 for the 1pm dose)
+  useEffect(() => {
+    const tick = () => setLoggingState(getLoggingState(slotTime, isLogged))
+    tick()
+    const timer = setInterval(tick, 30_000)
+    return () => clearInterval(timer)
+  }, [slotTime, isLogged])
+
+  const isDormant = loggingState === 'dormant'
+
   const startHold = () => {
-    if (isLogged) return
+    if (loggingState !== 'active') return
     setHolding(true)
     setProgress(0)
     let p = 0
@@ -65,8 +140,30 @@ function MedicineCard({ med, slot, onLog, onImageClick, onDelete, onEdit }: MedC
     }
   }
 
+  // Build hold-log-bar label based on state
+  let barLabel: React.ReactNode
+  if (loggingState === 'logged') {
+    barLabel = '✓ Dose logged'
+  } else if (loggingState === 'dormant') {
+    barLabel = (
+      <>
+        <Clock size={13} style={{ marginRight: 6, opacity: 0.7 }} aria-hidden="true" />
+        Available at {formatSlotTime(slotTime)}
+      </>
+    )
+  } else {
+    barLabel = 'Hold to log dose'
+  }
+
   return (
-    <div className={`medicine-card-v2 ${slot}`}>
+    <motion.div
+      layout
+      variants={cardVariants}
+      initial="hidden"
+      animate="visible"
+      exit="exit"
+      className={`medicine-card-v2 ${slot}${isDormant ? ' dormant-card' : ''}${loggingState === 'logged' ? ' logged-card' : ''}`}
+    >
       {/* Top Section */}
       <div className="card-top">
         <div
@@ -81,7 +178,7 @@ function MedicineCard({ med, slot, onLog, onImageClick, onDelete, onEdit }: MedC
               style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 12 }}
             />
           ) : (
-            <Pill size={22} color="var(--text-muted)" />
+            <Pill size={22} color={isDormant ? 'var(--text-muted)' : 'var(--text-muted)'} />
           )}
         </div>
 
@@ -99,7 +196,7 @@ function MedicineCard({ med, slot, onLog, onImageClick, onDelete, onEdit }: MedC
               </button>
             )}
           </div>
-          
+
           <div className="med-meta">
             {med.dosage && <span>Dosage: {med.dosage}</span>}
             {med.dosage && med.days != null && <span className="meta-dot"></span>}
@@ -135,28 +232,37 @@ function MedicineCard({ med, slot, onLog, onImageClick, onDelete, onEdit }: MedC
 
       {/* Bottom Section */}
       <div className="card-bottom">
-        <button
-          className={`hold-log-bar ${isLogged ? 'logged' : 'pending'}`}
-          onMouseDown={startHold}
-          onMouseUp={cancelHold}
-          onMouseLeave={cancelHold}
-          onTouchStart={startHold}
-          onTouchEnd={cancelHold}
+        <motion.button
+          whileTap={isDormant || loggingState === 'logged' ? undefined : { scale: 0.97 }}
+          className={`hold-log-bar ${loggingState}`}
+          onMouseDown={isDormant || loggingState === 'logged' ? undefined : startHold}
+          onMouseUp={isDormant || loggingState === 'logged' ? undefined : cancelHold}
+          onMouseLeave={isDormant || loggingState === 'logged' ? undefined : cancelHold}
+          onTouchStart={isDormant || loggingState === 'logged' ? undefined : startHold}
+          onTouchEnd={isDormant || loggingState === 'logged' ? undefined : cancelHold}
           style={
-            holding && !isLogged
+            holding && loggingState === 'active'
               ? {
-                  background: `linear-gradient(to right, var(--logged-color) ${progress}%, var(--danger-color) ${progress}%)`,
+                  background: `linear-gradient(to right, var(--logged-color) ${progress}%, #dc2626 ${progress}%)`,
+                  color: 'white',
                 }
               : undefined
           }
-          aria-label={isLogged ? 'Logged' : 'Hold to log'}
+          disabled={isDormant}
+          aria-label={
+            loggingState === 'logged'
+              ? 'Dose already logged'
+              : loggingState === 'dormant'
+              ? `Not available yet. Opens at ${formatSlotTime(slotTime)}`
+              : 'Hold to log dose'
+          }
           id={`log-btn-${med.id}-${slot}`}
           type="button"
         >
-          {isLogged ? 'Dose logged' : 'Hold to log dose'}
-        </button>
+          {barLabel}
+        </motion.button>
       </div>
-    </div>
+    </motion.div>
   )
 }
 
@@ -320,6 +426,39 @@ export default function Cabinet() {
           />
         ) : (
           <div style={{ paddingBottom: 16, opacity: isFetching ? 0.65 : 1, transition: 'opacity 0.2s ease' }}>
+            {(() => {
+              const totalDosesScheduled = medicines.reduce((acc, med) => acc + (med.schedule?.length || 0), 0)
+              const totalDosesTaken = medicines.reduce(
+                (acc, med) => acc + (med.today_logs ? med.today_logs.filter((s) => med.schedule.includes(s)).length : 0),
+                0
+              )
+              const adherencePercent = totalDosesScheduled > 0 
+                ? Math.round((totalDosesTaken / totalDosesScheduled) * 100)
+                : 0
+
+              return totalDosesScheduled > 0 ? (
+                <div className="adherence-dashboard-card">
+                  <div className="adherence-info">
+                    <div className="adherence-text-sec">
+                      <span className="adherence-score-title">Today&apos;s Adherence</span>
+                      <span className="adherence-score-val">{adherencePercent}%</span>
+                    </div>
+                    <span className="adherence-fraction">
+                      {totalDosesTaken} of {totalDosesScheduled} taken
+                    </span>
+                  </div>
+                  <div className="adherence-progress-track">
+                    <div 
+                      className="adherence-progress-bar" 
+                      style={{ width: `${adherencePercent}%` }} 
+                    />
+                  </div>
+                </div>
+              ) : null
+            })()}
+
+            <InteractionCheckerCard userId={activeMemberId} refreshTrigger={medicines.length} />
+
             <div className="cabinet-hero">
               <span className="cabinet-hero-title">Today&apos;s schedule</span>
               <span className="cabinet-hero-date">
@@ -351,17 +490,20 @@ export default function Cabinet() {
                       {label} · {timeDisplay}
                     </span>
                   </div>
-                  {meds.map((med) => (
-                    <MedicineCard
-                      key={med.id}
-                      med={med}
-                      slot={key}
-                      onLog={handleLog}
-                      onImageClick={setActiveLightboxImage}
-                      onDelete={requestDeleteMed}
-                      onEdit={setEditingMed}
-                    />
-                  ))}
+                  <AnimatePresence initial={false}>
+                    {meds.map((med) => (
+                      <MedicineCard
+                        key={med.id}
+                        med={med}
+                        slot={key}
+                        slotTime={customTimes[key] || DEFAULT_SLOT_TIMES[key]}
+                        onLog={handleLog}
+                        onImageClick={setActiveLightboxImage}
+                        onDelete={requestDeleteMed}
+                        onEdit={setEditingMed}
+                      />
+                    ))}
+                  </AnimatePresence>
                 </div>
               )
             })}

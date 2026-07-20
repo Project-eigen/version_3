@@ -3,8 +3,9 @@ import Webcam from 'react-webcam'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import api from '../api/client'
-import { Zap, ZapOff, Camera, X, Upload, Keyboard, Lightbulb } from 'lucide-react'
+import { Zap, ZapOff, Camera, X, Upload, Keyboard, HelpCircle } from 'lucide-react'
 import BrandLogo from '../components/BrandLogo'
+import Modal from '../components/Modal'
 
 export default function Scanner() {
   const webcamRef = useRef<Webcam>(null)
@@ -179,6 +180,15 @@ export default function Scanner() {
             )}
           </button>
           <button
+            className="flash-toggle-btn"
+            onClick={() => setShowTips(true)}
+            type="button"
+            aria-label="Scanning tips"
+            title="Scan help"
+          >
+            <HelpCircle size={18} color="var(--accent-teal)" aria-hidden="true" />
+          </button>
+          <button
             className="scanner-close-btn"
             onClick={() => navigate('/cabinet')}
             type="button"
@@ -204,7 +214,7 @@ export default function Scanner() {
             <div className="loading-spinner-container">
               <div className="loading-spinner" style={{ borderTopColor: 'var(--accent-teal)', width: 36, height: 36 }} />
             </div>
-            <span className="scanner-analyzing-text">Analyzing prescription…</span>
+            <span className="scanner-analyzing-text">Reading prescription…</span>
           </div>
         )}
         {cameraError && !capturedPreview ? (
@@ -229,12 +239,14 @@ export default function Scanner() {
             {!capturedPreview && (
               <Webcam
                 ref={webcamRef}
+                audio={false}
+                playsInline
                 screenshotFormat="image/jpeg"
                 screenshotQuality={1.0}
                 videoConstraints={{
                   facingMode: { ideal: 'environment' },
-                  width: { ideal: 1920 },
-                  height: { ideal: 1080 },
+                  width: { ideal: 1280 },
+                  height: { ideal: 720 },
                 }}
                 onUserMediaError={() => setCameraError(true)}
                 className="scanner-video-feed"
@@ -242,62 +254,65 @@ export default function Scanner() {
               />
             )}
 
-            {/* Viewfinder overlay */}
+            {/* Futuristic HUD Viewfinder overlay */}
             {!capturedPreview && (
               <div className="scanner-viewfinder">
-                {/* Animate only while analyzing — not an idle infinite loop */}
                 <div className={`scanner-scan-line ${capturing ? 'is-active' : ''}`} aria-hidden="true" />
                 <div className="scanner-corner tl" aria-hidden="true" />
                 <div className="scanner-corner tr" aria-hidden="true" />
                 <div className="scanner-corner bl" aria-hidden="true" />
                 <div className="scanner-corner br" aria-hidden="true" />
+                <div className="scanner-reticle-crosshair" aria-hidden="true" />
               </div>
             )}
 
-            {/* Enhanced Hint Label with Contextual Guidance */}
-            <div
-              className="scanner-hint-container"
-              role="status"
-              aria-live="polite"
-              aria-label="Scanner guidance"
-            >
-              <div className="scanner-hint">
-                {capturing ? (
-                  <span className="hint-text">Reading prescription…</span>
-                ) : (
-                  <div className="hint-text-group">
-                    <span className="hint-text">Place prescription inside the frame</span>
-                    <span className="hint-subtext">Good lighting and clear text work best</span>
-                  </div>
-                )}
-              </div>
+            {/* AR Live Status Banner */}
+            <div className="scanner-hud-status">
+              <span className="hud-pulse-dot" />
+              <span className="hud-status-text">
+                {capturing ? 'Analyzing prescription details…' : 'Position prescription inside reticle'}
+              </span>
             </div>
 
-            {/* Contextual Tips for Better Scanning */}
-            {!capturing && (
-              <div className="scanner-tips-badge" role="complementary">
-                <button
-                  className="tips-toggle-btn"
-                  onClick={() => setShowTips(!showTips)}
-                  aria-label="Toggle scanning tips"
-                  aria-expanded={showTips}
-                  type="button"
-                >
-                  <Lightbulb size={14} className="tips-icon" aria-hidden="true" />
-                  <span className="tips-label">Tips for better scans</span>
-                </button>
-                {showTips && (
-                  <div className="tips-content">
-                    <ul className="tips-list">
-                      <li>✓ Ensure bright, even lighting</li>
-                      <li>✓ Hold camera steady and parallel</li>
-                      <li>✓ Capture entire prescription</li>
-                      <li>✓ Avoid shadows and glare</li>
-                    </ul>
+            {/* Checklist Bottom Sheet Modal */}
+            <Modal
+              open={showTips}
+              onClose={() => setShowTips(false)}
+              title="Prescription Scanning Tips"
+              variant="sheet"
+            >
+              <div className="scanner-checklist">
+                <div className="checklist-item">
+                  <span className="checklist-icon">💡</span>
+                  <div className="checklist-info">
+                    <span className="checklist-title">Bright & Even Lighting</span>
+                    <span className="checklist-desc">Ensure strong lighting across the page to avoid dark shadows.</span>
                   </div>
-                )}
+                </div>
+                <div className="checklist-item">
+                  <span className="checklist-icon">📐</span>
+                  <div className="checklist-info">
+                    <span className="checklist-title">Flat & Parallel Angle</span>
+                    <span className="checklist-desc">Hold your phone directly above the prescription.</span>
+                  </div>
+                </div>
+                <div className="checklist-item">
+                  <span className="checklist-icon">🔍</span>
+                  <div className="checklist-info">
+                    <span className="checklist-title">Clear Medicine Names</span>
+                    <span className="checklist-desc">Include doctor notes, dosage columns, and timings.</span>
+                  </div>
+                </div>
               </div>
-            )}
+              <button 
+                type="button" 
+                className="bottom-sheet-cancel" 
+                onClick={() => setShowTips(false)}
+                style={{ marginTop: '12px' }}
+              >
+                Understood
+              </button>
+            </Modal>
           </>
         )}
         {imageQuality && (
@@ -310,13 +325,6 @@ export default function Scanner() {
       {(errorMsg || flashHint) && (
         <div className="scanner-inline-error" role="status">
           {errorMsg || flashHint}
-        </div>
-      )}
-
-      {/* Cabinet tip */}
-      {!capturing && (
-        <div className="cabinet-tip">
-          <strong>Tip:</strong> Align prescription so medicine names and time columns are clearly visible
         </div>
       )}
 

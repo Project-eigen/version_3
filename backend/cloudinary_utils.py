@@ -30,7 +30,19 @@ def upload_image_bytes(image_bytes: bytes, folder: str = "dawaisathi") -> str:
             raise CloudinaryUploadError(
                 "CLOUDINARY_URL is not configured. Set it on Render — local disk is not used in production."
             )
-        raise CloudinaryUploadError("CLOUDINARY_URL is not configured for this environment.")
+        # Local Development Fallback: Save image to local uploads folder
+        import uuid
+        filename = f"local_{uuid.uuid4().hex}.jpg"
+        upload_dir = current_app.config["UPLOAD_FOLDER"]
+        os.makedirs(upload_dir, exist_ok=True)
+        filepath = os.path.join(upload_dir, filename)
+        try:
+            with open(filepath, "wb") as f:
+                f.write(image_bytes)
+            return f"/uploads/{filename}"
+        except Exception as e:
+            current_app.logger.error(f"Local file write error: {e}")
+            raise CloudinaryUploadError(f"Failed to write file locally: {e}") from e
 
     import cloudinary
     import cloudinary.uploader

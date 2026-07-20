@@ -34,8 +34,8 @@ api.interceptors.response.use(
 
 export function getImageUrl(url: string | null | undefined): string {
   if (!url) return ''
-  // Legacy local paths — files are gone on Render; avoid noisy 404 requests
-  if (url.startsWith('/uploads/')) {
+  // Legacy local paths — files are gone on Render; allow in local development
+  if (url.startsWith('/uploads/') && !import.meta.env.DEV) {
     return ''
   }
   return url

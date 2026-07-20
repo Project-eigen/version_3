@@ -1,6 +1,8 @@
 import { lazy, Suspense, useEffect } from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
+import { AnimatePresence } from 'framer-motion'
+import PageTransition from './components/PageTransition'
 import api from './api/client'
 
 // Lazy-loaded pages — each page becomes its own JS chunk.
@@ -33,6 +35,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 function AppRoutes() {
   const { user, loading } = useAuth()
+  const location = useLocation()
 
   useEffect(() => {
     if (!user) return
@@ -96,21 +99,23 @@ function AppRoutes() {
   return (
     <div className="app-shell">
       <Suspense fallback={<PageSuspense />}>
-        <Routes>
-          {/* Public */}
-          <Route path="/" element={user ? <Navigate to="/home" replace /> : <AuthGate />} />
-          <Route path="/auth/success" element={<AuthSuccess />} />
+        <AnimatePresence mode="wait">
+          <Routes location={location} key={location.pathname}>
+            {/* Public */}
+            <Route path="/" element={user ? <Navigate to="/home" replace /> : <PageTransition><AuthGate /></PageTransition>} />
+            <Route path="/auth/success" element={<PageTransition><AuthSuccess /></PageTransition>} />
 
-          {/* Protected */}
-          <Route path="/home"        element={<ProtectedRoute><FamilySettings /></ProtectedRoute>} />
-          <Route path="/settings"    element={<ProtectedRoute><SettingsDashboard /></ProtectedRoute>} />
-          <Route path="/cabinet"     element={<ProtectedRoute><Cabinet /></ProtectedRoute>} />
-          <Route path="/scan"        element={<ProtectedRoute><Scanner /></ProtectedRoute>} />
-          <Route path="/scan/approve" element={<ProtectedRoute><ScanApproval /></ProtectedRoute>} />
+            {/* Protected */}
+            <Route path="/home"        element={<ProtectedRoute><PageTransition><FamilySettings /></PageTransition></ProtectedRoute>} />
+            <Route path="/settings"    element={<ProtectedRoute><PageTransition><SettingsDashboard /></PageTransition></ProtectedRoute>} />
+            <Route path="/cabinet"     element={<ProtectedRoute><PageTransition><Cabinet /></PageTransition></ProtectedRoute>} />
+            <Route path="/scan"        element={<ProtectedRoute><PageTransition><Scanner /></PageTransition></ProtectedRoute>} />
+            <Route path="/scan/approve" element={<ProtectedRoute><PageTransition><ScanApproval /></PageTransition></ProtectedRoute>} />
 
-          {/* Fallback */}
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+            {/* Fallback */}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </AnimatePresence>
       </Suspense>
     </div>
   )
